@@ -1,11 +1,14 @@
 # Natural Selection Current Status
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## Current posture
 
 - Branch: `codex/camouflage-rebuild`
 - Recovery baseline: `3737cb7 chore: preserve deer prototype baseline`
+- Rebuild checkpoint: `4d0d8e1 feat: rebuild natural selection as camouflage game`
+- Latest pushed checkpoint before this status update: `ffdae5a chore: ignore local Vercel metadata`
+- The branch is synchronized with `origin/codex/camouflage-rebuild`.
 - The deer/Three.js prototype is preserved in that commit and removed from the shipped working tree.
 - `AGENTS.md` and `KEYUR_WORKFLOW.md` contain pre-existing user changes and must remain unstaged unless separately requested.
 - `CODEX_START.md` remains local-only through `.git/info/exclude`.
@@ -33,13 +36,18 @@ Last updated: 2026-07-15
   - Renderer/storage failure journey: passed observation fallback, science completion, unavailable predator score, and replay with a new seed.
 - Twelve release screenshots were captured in portrait and landscape under `test-results/release-screenshots/` for mission, reef gameplay, reef evidence, moth gameplay, CER, and results.
 - Final visual review confirmed the complete 40-organism reef and bark previews, readable percentage tables, no horizontal overflow at the tested iPad sizes, and no browser console warnings or errors.
+- Public Vercel preview: `https://biology-natural-selection-d83r3yei6-keyur159263-5904s-projects.vercel.app`
+- Preview deployment: `dpl_3YpnD7WQeHmviMFkXLyCusjSF9T8` (`Ready`, preview target).
+- Direct HTTP verification returned 200 with the expected page title.
+- Browser verification at an 820 x 1180 viewport loaded exactly one Phaser canvas, enabled Generation 1, completed the first generation, displayed the expected 40 started / 12 caught / 28 survived / 40 offspring evidence, and produced no console warnings or errors.
+- Vercel's first project deploy unexpectedly targeted production. That deployment was removed immediately. The production alias `https://biology-natural-selection.vercel.app` was then verified to return 404.
 
 ## Immediate next actions
 
-1. Commit only the intended rebuild files; keep `AGENTS.md` and `KEYUR_WORKFLOW.md` unstaged.
-2. Push `codex/camouflage-rebuild` and establish its GitHub upstream.
-3. Create a Vercel preview, verify HTTP access and the browser flow, and record the preview URL here.
-4. Stop before production promotion and request Keyur's approval.
+1. Review the public preview and the release screenshots.
+2. Complete the physical iPad and classroom pilot gates below.
+3. Fix any issues found during those gates and rerun the release checks.
+4. Promote to production only after Keyur gives explicit approval.
 
 ## Manual gates still open
 
