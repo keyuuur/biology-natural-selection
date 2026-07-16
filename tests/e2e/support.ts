@@ -15,15 +15,18 @@ export function testUrl(options: {
   seed: string
   failRenderer?: boolean
   failStorage?: boolean
+  qa?: boolean
+  roundMs?: number
 }) {
   const query = new URLSearchParams({
     e2e: '1',
-    e2eRoundMs: '350',
+    e2eRoundMs: String(options.roundMs ?? 350),
     e2eSeed: options.seed,
   })
 
   if (options.failRenderer) query.set('e2eRenderer', 'fail')
   if (options.failStorage) query.set('e2eStorage', 'fail')
+  if (options.qa) query.set('qa', '1')
   return `/?${query.toString()}`
 }
 

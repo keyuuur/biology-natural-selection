@@ -8,8 +8,7 @@ import type {
 } from '../simulation/index.ts'
 import { deriveSeed } from '../simulation/index.ts'
 import type { PhaserSceneController } from '../phaser/PhaserSceneController.ts'
-import type { SceneOrganism } from '../phaser/HabitatScene.ts'
-import type { SceneRound } from '../phaser/HabitatScene.ts'
+import type { SceneOrganism, SceneRound } from '../phaser/HabitatScene.ts'
 
 type HabitatGameProps = {
   active: boolean
@@ -26,13 +25,33 @@ type HabitatGameProps = {
   onComplete: (metrics: PlayerRoundMetrics) => void
 }
 
-type RoundStatus = 'loading' | 'ready' | 'running' | 'fallback'
+type RoundStatus = 'loading' | 'ready' | 'running' | 'paused' | 'resolving' | 'fallback'
+type PauseReason = 'host' | 'visibility' | 'blur' | 'resize'
 
 type MutableMetrics = {
   manualCatches: MorphCounts
   misses: number
   protectedEscapes: number
   elapsedMs: number
+}
+
+type InteractionController = PhaserSceneController & {
+  setPauseReason?: (reason: PauseReason, active: boolean) => void
+  getDiagnostics?: () => Record<string, unknown>
+}
+
+type InteractionQaBridge = {
+  snapshot: () => Record<string, unknown>
+}
+
+type QaWindow = Window & {
+  __NS_INTERACTION_QA__?: InteractionQaBridge
+}
+
+type CanvasActorDiagnostic = {
+  center?: { x: number; y: number }
+  hitBounds?: { x: number; y: number; width: number; height: number }
+  [key: string]: unknown
 }
 
 function emptyMetrics(): MutableMetrics {
@@ -57,11 +76,78 @@ function makeOrganisms(counts: MorphCounts, roundId: string): SceneOrganism[] {
   )
 }
 
+function setControllerPause(
+  controller: PhaserSceneController,
+  reason: PauseReason,
+  active: boolean,
+): void {
+  const interactionController = controller as InteractionController
+  if (interactionController.setPauseReason) {
+    interactionController.setPauseReason(reason, active)
+  } else if (active) {
+    controller.pause()
+  } else {
+    controller.resume()
+  }
+}
+
+function diagnosticsWithClientCoordinates(
+  diagnostics: Record<string, unknown>,
+  canvas: HTMLCanvasElement | null,
+): Record<string, unknown> {
+  const rawFrameMetrics = diagnostics.frameMetrics
+  const frameMetrics = rawFrameMetrics && typeof rawFrameMetrics === 'object'
+    ? {
+        ...rawFrameMetrics,
+        medianFrameMs:
+          Reflect.get(rawFrameMetrics, 'medianFrameTimeMs') ?? Reflect.get(rawFrameMetrics, 'medianFrameMs'),
+        p95FrameMs:
+          Reflect.get(rawFrameMetrics, 'p95FrameTimeMs') ?? Reflect.get(rawFrameMetrics, 'p95FrameMs'),
+      }
+    : rawFrameMetrics
+  if (!canvas || !Array.isArray(diagnostics.actors)) {
+    return { ...diagnostics, frameMetrics }
+  }
+  const rect = canvas.getBoundingClientRect()
+  const scaleX = canvas.width > 0 ? rect.width / canvas.width : 1
+  const scaleY = canvas.height > 0 ? rect.height / canvas.height : 1
+  const actors = (diagnostics.actors as CanvasActorDiagnostic[]).map((actor) => {
+    const canvasCenter = actor.center
+    const canvasHitBounds = actor.hitBounds
+    return {
+      ...actor,
+      ...(canvasCenter
+        ? {
+            canvasCenter,
+            center: {
+              x: rect.left + canvasCenter.x * scaleX,
+              y: rect.top + canvasCenter.y * scaleY,
+            },
+          }
+        : {}),
+      ...(canvasHitBounds
+        ? {
+            canvasHitBounds,
+            hitBounds: {
+              x: rect.left + canvasHitBounds.x * scaleX,
+              y: rect.top + canvasHitBounds.y * scaleY,
+              width: canvasHitBounds.width * scaleX,
+              height: canvasHitBounds.height * scaleY,
+            },
+          }
+        : {}),
+    }
+  })
+  return { ...diagnostics, actors, frameMetrics }
+}
+
 export function HabitatGame(props: HabitatGameProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<PhaserSceneController | null>(null)
   const rendererBrokenRef = useRef(props.forceRendererFailure ?? false)
-  const finishedRef = useRef(false)
+  const completionLockedRef = useRef(false)
+  const resolvingTimeoutRef = useRef<number | null>(null)
+  const handledOrganismIdsRef = useRef(new Set<string>())
   const metricsRef = useRef<MutableMetrics>(emptyMetrics())
   const propsRef = useRef(props)
   propsRef.current = props
@@ -76,34 +162,57 @@ export function HabitatGame(props: HabitatGameProps) {
   const roundIdRef = useRef(roundId)
   roundIdRef.current = roundId
 
-  const [status, setStatus] = useState<RoundStatus>(
-    props.forceRendererFailure ? 'fallback' : 'loading',
-  )
+  const initialStatus: RoundStatus = props.forceRendererFailure ? 'fallback' : 'loading'
+  const [status, setStatus] = useState<RoundStatus>(initialStatus)
+  const statusRef = useRef<RoundStatus>(initialStatus)
   const [remainingMs, setRemainingMs] = useState(props.durationMs)
+  const remainingMsRef = useRef(props.durationMs)
+  const lastVisibleSecondRef = useRef(Math.ceil(props.durationMs / 1000))
+  const lastAnnouncedSecondRef = useRef<number | null>(null)
   const [displayMetrics, setDisplayMetrics] = useState<MutableMetrics>(metricsRef.current)
   const [rendererMessage, setRendererMessage] = useState(
     props.forceRendererFailure
       ? 'Observation mode is active because graphics are unavailable.'
       : 'Preparing habitat…',
   )
+  const [liveMessage, setLiveMessage] = useState('')
+
+  function transition(nextStatus: RoundStatus): void {
+    statusRef.current = nextStatus
+    setStatus(nextStatus)
+  }
+
+  function updateVisibleTime(nextRemainingMs: number): void {
+    const nextSecond = Math.max(0, Math.ceil(nextRemainingMs / 1000))
+    remainingMsRef.current = nextRemainingMs
+    if (nextSecond !== lastVisibleSecondRef.current) {
+      lastVisibleSecondRef.current = nextSecond
+      setRemainingMs(nextRemainingMs)
+    }
+    const shouldAnnounce = nextSecond > 0 && (nextSecond % 10 === 0 || nextSecond <= 5)
+    if (shouldAnnounce && lastAnnouncedSecondRef.current !== nextSecond) {
+      lastAnnouncedSecondRef.current = nextSecond
+      setLiveMessage(`${nextSecond} seconds remaining.`)
+    }
+  }
 
   useEffect(() => {
     const controller = controllerRef.current
     if (!controller) return
     if (props.active) {
-      controller.resume()
+      setControllerPause(controller, 'host', false)
       const frame = window.requestAnimationFrame(() => {
         controller.resize()
         controller.prepareGeneration(currentSceneRound())
-        setStatus('ready')
+        transition('ready')
         setRendererMessage('Habitat ready. Start when you are ready to hunt.')
       })
       return () => window.cancelAnimationFrame(frame)
     }
-    controller.pause()
+    setControllerPause(controller, 'host', true)
   }, [props.active])
 
-  function snapshotMetrics() {
+  function snapshotMetrics(): void {
     setDisplayMetrics({
       manualCatches: { ...metricsRef.current.manualCatches },
       misses: metricsRef.current.misses,
@@ -127,10 +236,7 @@ export function HabitatGame(props: HabitatGameProps) {
     }
   }
 
-  function finish(inputMode: 'interactive' | 'observation', fallbackUsed: boolean) {
-    if (finishedRef.current) return
-    finishedRef.current = true
-    controllerRef.current?.finishRound()
+  function deliverCompletion(inputMode: 'interactive' | 'observation', fallbackUsed: boolean): void {
     const current = propsRef.current
     current.onComplete({
       seed: current.roundSeed,
@@ -144,20 +250,53 @@ export function HabitatGame(props: HabitatGameProps) {
     })
   }
 
+  function finishImmediately(inputMode: 'interactive' | 'observation', fallbackUsed: boolean): void {
+    if (completionLockedRef.current) return
+    completionLockedRef.current = true
+    controllerRef.current?.finishRound()
+    deliverCompletion(inputMode, fallbackUsed)
+  }
+
+  function beginResolving(trigger: 'manual' | 'timer'): void {
+    if (completionLockedRef.current) return
+    completionLockedRef.current = true
+    controllerRef.current?.finishRound()
+    transition('resolving')
+    const caught = total(metricsRef.current.manualCatches)
+    const message = trigger === 'manual'
+      ? '12 of 12 caught. Calculating survivors and offspring.'
+      : `You caught ${caught}. The model completes the remaining ${12 - caught} predation events.`
+    setRendererMessage(message)
+    setLiveMessage(message)
+    resolvingTimeoutRef.current = window.setTimeout(() => {
+      resolvingTimeoutRef.current = null
+      deliverCompletion('interactive', false)
+    }, 700)
+  }
+
   useEffect(() => {
-    finishedRef.current = false
+    if (resolvingTimeoutRef.current !== null) {
+      window.clearTimeout(resolvingTimeoutRef.current)
+      resolvingTimeoutRef.current = null
+    }
+    completionLockedRef.current = false
+    handledOrganismIdsRef.current.clear()
     metricsRef.current = emptyMetrics()
     setDisplayMetrics(metricsRef.current)
+    remainingMsRef.current = props.durationMs
+    lastVisibleSecondRef.current = Math.ceil(props.durationMs / 1000)
+    lastAnnouncedSecondRef.current = null
     setRemainingMs(props.durationMs)
+    setLiveMessage('')
     if (rendererBrokenRef.current) {
-      setStatus('fallback')
+      transition('fallback')
       setRendererMessage('Observation mode is active because graphics are unavailable.')
     } else if (controllerRef.current && props.active) {
       controllerRef.current.prepareGeneration(currentSceneRound())
-      setStatus('ready')
+      transition('ready')
       setRendererMessage('Habitat ready. Start when you are ready to hunt.')
     } else if (!props.forceRendererFailure) {
-      setStatus('loading')
+      transition('loading')
       setRendererMessage('Preparing habitat…')
     }
   }, [roundId, props.active, props.durationMs, props.forceRendererFailure])
@@ -166,6 +305,7 @@ export function HabitatGame(props: HabitatGameProps) {
     if (props.forceRendererFailure) return
     let cancelled = false
     let visibilityHandler: (() => void) | null = null
+    let installedQaBridge: InteractionQaBridge | null = null
 
     async function mountRenderer() {
       const host = hostRef.current
@@ -176,11 +316,13 @@ export function HabitatGame(props: HabitatGameProps) {
         const controller = new module.PhaserSceneController(hostRef.current, {
           onReady: () => {
             controllerRef.current?.prepareGeneration(currentSceneRound())
-            setStatus('ready')
+            transition('ready')
             setRendererMessage('Habitat ready. Start when you are ready to hunt.')
           },
           onOrganismTapped: ({ roundId: eventRoundId, organismId, morphId, elapsedMs }) => {
-            if (eventRoundId !== roundIdRef.current || finishedRef.current) return
+            if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
+            if (handledOrganismIdsRef.current.has(organismId)) return
+            handledOrganismIdsRef.current.add(organismId)
             const current = metricsRef.current
             const currentProps = propsRef.current
             const manualTotal = total(current.manualCatches)
@@ -192,6 +334,7 @@ export function HabitatGame(props: HabitatGameProps) {
               current.protectedEscapes += 1
               controllerRef.current?.showEscape(organismId)
               snapshotMetrics()
+              setLiveMessage('Protected for comparison — enough parents must remain.')
               return
             }
 
@@ -203,41 +346,77 @@ export function HabitatGame(props: HabitatGameProps) {
             current.manualCatches = nextCatches
             controllerRef.current?.confirmCapture(organismId)
             snapshotMetrics()
+            setLiveMessage(`Caught. ${total(nextCatches)} of 12.`)
 
-            if (total(nextCatches) === 12) finish('interactive', false)
+            if (total(nextCatches) === 12) beginResolving('manual')
           },
           onMiss: ({ roundId: eventRoundId, elapsedMs }) => {
-            if (eventRoundId !== roundIdRef.current || finishedRef.current) return
+            if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
             metricsRef.current.misses += 1
             metricsRef.current.elapsedMs = elapsedMs
             snapshotMetrics()
+            setLiveMessage('Miss — no penalty.')
           },
           onTick: ({ roundId: eventRoundId, remainingMs: nextRemaining }) => {
-            if (eventRoundId !== roundIdRef.current || finishedRef.current) return
+            if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
             metricsRef.current.elapsedMs = propsRef.current.durationMs - nextRemaining
-            setRemainingMs(nextRemaining)
+            updateVisibleTime(nextRemaining)
           },
           onRoundEnd: ({ roundId: eventRoundId }) => {
-            if (eventRoundId !== roundIdRef.current) return
+            if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
             metricsRef.current.elapsedMs = propsRef.current.durationMs
-            finish('interactive', false)
+            updateVisibleTime(0)
+            beginResolving('timer')
           },
           onError: (message) => {
-            if (finishedRef.current) return
+            if (completionLockedRef.current) return
             rendererBrokenRef.current = true
             controllerRef.current?.finishRound()
             if (total(metricsRef.current.manualCatches) > 0) {
-              finish('interactive', true)
+              finishImmediately('interactive', true)
             } else {
               setRendererMessage(`${message} Observation mode will finish this generation.`)
-              setStatus('fallback')
+              transition('fallback')
             }
           },
         })
         controllerRef.current = controller
+
+        const query = new URLSearchParams(window.location.search)
+        const qaBuild = import.meta.env.DEV || import.meta.env.VITE_INTERACTION_QA === '1'
+        if (qaBuild && (query.get('qa') === '1' || query.get('e2e') === '1')) {
+          const qaWindow = window as QaWindow
+          installedQaBridge = {
+            snapshot: () => {
+              const canvas = hostRef.current?.querySelector('canvas') ?? null
+              const rendererDiagnostics = diagnosticsWithClientCoordinates(
+                (controller as InteractionController).getDiagnostics?.() ?? {},
+                canvas,
+              )
+              return {
+                ...rendererDiagnostics,
+                roundState: statusRef.current,
+                roundStatus: statusRef.current,
+                remainingMs: remainingMsRef.current,
+                manualCatches: total(metricsRef.current.manualCatches),
+                misses: metricsRef.current.misses,
+                protectedAttempts: metricsRef.current.protectedEscapes,
+                canvasCount: hostRef.current?.querySelectorAll('canvas').length ?? 0,
+                documentCanvasCount: document.querySelectorAll('.habitat-canvas-host canvas').length,
+              }
+            },
+          }
+          qaWindow.__NS_INTERACTION_QA__ = installedQaBridge
+        }
+
         visibilityHandler = () => {
-          if (document.hidden) controller.pause()
-          else controller.resume()
+          if (!propsRef.current.active || statusRef.current !== 'running') return
+          if (document.hidden) {
+            setControllerPause(controller, 'visibility', true)
+            transition('paused')
+            setRendererMessage('Study paused. Resume when you are ready.')
+            setLiveMessage('Study paused. The timer is stopped.')
+          }
         }
         document.addEventListener('visibilitychange', visibilityHandler)
       } catch (error) {
@@ -245,27 +424,50 @@ export function HabitatGame(props: HabitatGameProps) {
         setRendererMessage(
           `${error instanceof Error ? error.message : 'The habitat renderer could not load.'} Observation mode is available.`,
         )
-        setStatus('fallback')
+        transition('fallback')
       }
     }
 
     void mountRenderer()
     return () => {
       cancelled = true
+      if (resolvingTimeoutRef.current !== null) {
+        window.clearTimeout(resolvingTimeoutRef.current)
+        resolvingTimeoutRef.current = null
+      }
       if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler)
+      const qaWindow = window as QaWindow
+      if (installedQaBridge && qaWindow.__NS_INTERACTION_QA__ === installedQaBridge) {
+        delete qaWindow.__NS_INTERACTION_QA__
+      }
       controllerRef.current?.dispose()
       controllerRef.current = null
     }
   }, [props.forceRendererFailure])
 
-  function startRound() {
+  function startRound(): void {
     const controller = controllerRef.current
-    if (!controller || status !== 'ready') return
+    if (!controller || statusRef.current !== 'ready') return
+    handledOrganismIdsRef.current.clear()
     metricsRef.current = emptyMetrics()
     setDisplayMetrics(metricsRef.current)
+    remainingMsRef.current = props.durationMs
+    lastVisibleSecondRef.current = Math.ceil(props.durationMs / 1000)
+    lastAnnouncedSecondRef.current = null
     setRemainingMs(props.durationMs)
-    setStatus('running')
+    setLiveMessage('Generation started. Tap whichever organisms you notice first.')
+    transition('running')
     controller.startGeneration(currentSceneRound())
+  }
+
+  function resumeRound(): void {
+    const controller = controllerRef.current
+    if (!controller || statusRef.current !== 'paused') return
+    setControllerPause(controller, 'visibility', false)
+    setControllerPause(controller, 'blur', false)
+    transition('running')
+    setRendererMessage('Generation resumed.')
+    setLiveMessage('Generation resumed. The timer is running.')
   }
 
   if (status === 'fallback') {
@@ -279,47 +481,84 @@ export function HabitatGame(props: HabitatGameProps) {
         </div>
         <p>{rendererMessage}</p>
         <p>The model will complete all 12 predation events using the same visibility settings. You can continue through every science step.</p>
-        <button className="primary-button" data-testid="start-generation" onClick={() => finish('observation', true)} type="button">
+        <button className="primary-button" data-testid="start-generation" onClick={() => finishImmediately('observation', true)} type="button">
           Resolve this generation
         </button>
       </section>
     )
   }
 
+  const caught = total(displayMetrics.manualCatches)
+  const progress = Math.max(0, Math.min(props.durationMs, remainingMs))
+  const showFirstRoundCoaching = props.habitatId === 'reef_fish' && props.generation === 1
+
   return (
     <section className="habitat-game" aria-labelledby="habitat-title">
+      <p className="sr-only" aria-atomic="true" aria-live="polite">{liveMessage}</p>
       <div className="habitat-game__heading">
         <div>
           <p className="eyebrow">Predator field round</p>
           <h2 data-testid="habitat-title" id="habitat-title">{props.habitatTitle}</h2>
         </div>
-        <div className="round-timer" aria-live="polite">
+        <div className="round-timer" aria-label={`${Math.ceil(remainingMs / 1000)} seconds remaining`}>
           <strong>{Math.ceil(remainingMs / 1000)}s</strong>
           <span>Generation {props.generation}</span>
         </div>
       </div>
+      <progress
+        aria-label="Time remaining"
+        className="round-time-progress"
+        max={props.durationMs}
+        value={progress}
+      />
       <div className="habitat-canvas-wrap">
-        <div className="habitat-canvas-host" ref={hostRef} />
+        <div
+          aria-hidden={status !== 'running'}
+          className={`habitat-canvas-host${status === 'running' ? ' habitat-canvas-host--active' : ''}`}
+          ref={hostRef}
+        />
         {status !== 'running' && (
-          <div className="habitat-start-overlay">
+          <div className={`habitat-start-overlay habitat-start-overlay--${status}`}>
+            {status === 'ready' && showFirstRoundCoaching && (
+              <div className="round-coaching" data-testid="round-coaching">
+                <p className="eyebrow">How this field round works</p>
+                <ol>
+                  <li>Tap whichever organisms you notice first.</li>
+                  <li>Caught organisms fade from the habitat.</li>
+                  <li>Misses have no penalty. If time ends, the model completes the remaining predation events.</li>
+                </ol>
+              </div>
+            )}
             <p>{rendererMessage}</p>
-            <button
-              className="primary-button"
-              data-testid="start-generation"
-              disabled={status === 'loading'}
-              onClick={startRound}
-              type="button"
-            >
-              {status === 'loading' ? 'Loading habitat…' : `Start Generation ${props.generation}`}
-            </button>
+            {(status === 'loading' || status === 'ready') && (
+              <button
+                className="primary-button"
+                data-testid="start-generation"
+                disabled={status === 'loading'}
+                onClick={startRound}
+                type="button"
+              >
+                {status === 'loading' ? 'Loading habitat…' : `Start Generation ${props.generation}`}
+              </button>
+            )}
+            {status === 'paused' && (
+              <button
+                className="primary-button"
+                data-testid="resume-generation"
+                onClick={resumeRound}
+                type="button"
+              >
+                Resume
+              </button>
+            )}
+            {status === 'resolving' && <div className="resolving-indicator" aria-hidden="true" />}
           </div>
         )}
       </div>
-      <div className="round-hud" aria-label="Round performance">
-        <span><strong>{total(displayMetrics.manualCatches)}</strong> manual catches</span>
-        <span><strong>{displayMetrics.misses}</strong> misses</span>
-        <span><strong>{displayMetrics.protectedEscapes}</strong> escaped into cover</span>
-        <span><strong>{Math.max(0, 12 - total(displayMetrics.manualCatches))}</strong> model events remaining</span>
+      <div className="round-hud" aria-label="Round progress">
+        <span><strong>Caught {caught} of 12</strong></span>
+        <span><strong>Misses {displayMetrics.misses}</strong> — no penalty</span>
+        <span><strong>Model-protected {displayMetrics.protectedEscapes}</strong></span>
       </div>
       <p className="field-caption">Tap whichever organisms you notice first. Do not hunt for a particular pattern.</p>
     </section>

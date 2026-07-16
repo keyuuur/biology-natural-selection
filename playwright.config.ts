@@ -17,7 +17,6 @@ export default defineConfig({
   ],
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    browserName: 'chromium',
     colorScheme: 'light',
     hasTouch: true,
     locale: 'en-US',
@@ -26,6 +25,23 @@ export default defineConfig({
     video: 'retain-on-failure',
     viewport: { width: 820, height: 1180 },
   },
+  projects: [
+    {
+      name: 'chromium',
+      use: { browserName: 'chromium' },
+    },
+    {
+      name: 'webkit-ipad',
+      grep: /@webkit/,
+      use: {
+        browserName: 'webkit',
+        viewport: { width: 820, height: 1180 },
+        deviceScaleFactor: 2,
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+  ],
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
     url: `http://127.0.0.1:${port}`,

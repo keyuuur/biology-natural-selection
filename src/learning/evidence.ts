@@ -84,7 +84,7 @@ export function formatRateBasedGenerationEvidence(
   const manual = total(input.manualCatches)
   const automatic = total(input.automaticCatches)
   const protectedEscapeDisclosure = input.protectedEscapes
-    ? ` ${input.protectedEscapes} additional ${input.protectedEscapes === 1 ? 'tap became a protected escape' : 'taps became protected escapes'} and did not count as a capture or miss.`
+    ? ` The classroom model protected ${input.protectedEscapes} additional ${input.protectedEscapes === 1 ? 'tap' : 'taps'} for comparison; ${input.protectedEscapes === 1 ? 'it was' : 'they were'} not a capture or miss.`
     : ''
 
   return `${copy.title}, Generation ${input.generation}: ${input.survivorCounts.camouflaged} of ${input.startingCounts.camouflaged} organisms with the ${copy.morphLabels.camouflaged} survived (${camouflagedSurvival}), compared with ${input.survivorCounts.conspicuous} of ${input.startingCounts.conspicuous} organisms with the ${copy.morphLabels.conspicuous} (${conspicuousSurvival}). Those survivors produced ${input.offspringCounts.camouflaged} and ${input.offspringCounts.conspicuous} offspring, respectively. ${manual} of 12 captures came from your taps; the model completed ${automatic}.${protectedEscapeDisclosure}`

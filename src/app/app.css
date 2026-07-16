@@ -251,13 +251,59 @@
 .round-timer { display: grid; min-width: 100px; padding: 9px 14px; border-radius: 13px; color: white; background: var(--ocean); text-align: center; }
 .round-timer strong { font-size: 1.4rem; }
 .round-timer span { font-size: .78rem; }
+.round-time-progress {
+  width: 100%;
+  height: 10px;
+  display: block;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  color: var(--sun);
+  background: #c8dcd7;
+  appearance: none;
+}
+.round-time-progress::-webkit-progress-bar { background: #c8dcd7; }
+.round-time-progress::-webkit-progress-value { background: var(--sun); transition: width 180ms linear; }
+.round-time-progress::-moz-progress-bar { background: var(--sun); transition: width 180ms linear; }
 .habitat-canvas-wrap { position: relative; min-height: clamp(430px, 55vw, 650px); background: #176c80; }
 .habitat-canvas-host,
 .habitat-canvas-host canvas { width: 100%; height: 100%; min-height: inherit; display: block; }
-.habitat-start-overlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 14px; padding: 20px; color: white; background: rgb(6 47 55 / 60%); text-align: center; }
+.habitat-canvas-host--active,
+.habitat-canvas-host--active canvas {
+  touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.habitat-start-overlay { position: absolute; z-index: 4; inset: 0; display: grid; place-items: center; align-content: center; gap: 14px; padding: 20px; color: white; background: rgb(6 47 55 / 66%); text-align: center; }
 .habitat-start-overlay p { max-width: 520px; margin: 0; font-weight: 850; }
+.habitat-start-overlay--paused,
+.habitat-start-overlay--resolving { background: rgb(6 47 55 / 78%); }
+.round-coaching {
+  width: min(620px, 100%);
+  padding: 18px 20px;
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 16px;
+  color: var(--ink);
+  background: rgb(255 254 249 / 96%);
+  box-shadow: 0 15px 45px rgb(0 0 0 / 25%);
+  text-align: left;
+}
+.round-coaching .eyebrow { color: var(--ocean); }
+.round-coaching ol { display: grid; gap: 9px; margin: 8px 0 0; padding-left: 24px; }
+.round-coaching li { padding-left: 4px; line-height: 1.4; font-weight: 750; }
+.resolving-indicator {
+  width: 44px;
+  height: 44px;
+  border: 5px solid rgb(255 255 255 / 38%);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: resolving-spin 700ms linear infinite;
+}
+@keyframes resolving-spin { to { transform: rotate(360deg); } }
 .round-hud { justify-content: space-around; flex-wrap: wrap; gap: 10px; padding: 13px 18px; background: #eff7f4; }
-.round-hud span { min-height: 44px; display: flex; align-items: center; gap: 5px; }
+.round-hud span { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 12px; border-radius: 10px; background: rgb(255 255 255 / 72%); }
 .round-hud strong { font-size: 1.2rem; }
 .field-caption { margin: 0; padding: 10px 20px 16px; color: var(--ink-soft); text-align: center; }
 
@@ -396,8 +442,21 @@
   .app-footer { align-items: flex-start; flex-direction: column; padding-inline: 18px; }
 }
 
+@media (orientation: landscape) and (max-height: 900px) {
+  .habitat-game__heading { padding-block: 12px; }
+  .habitat-canvas-wrap {
+    height: clamp(390px, calc(100svh - 350px), 460px);
+    min-height: 390px;
+  }
+  .round-hud { gap: 8px; padding-block: 8px; }
+  .round-hud span { min-height: 40px; }
+  .field-caption { padding: 7px 16px 10px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progress-track span,
+  .round-time-progress::-webkit-progress-value,
   .primary-button,
   .secondary-button { transition: none; }
+  .resolving-indicator { animation: none; border-color: white; }
 }

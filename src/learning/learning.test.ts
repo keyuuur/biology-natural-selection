@@ -136,14 +136,14 @@ describe('evidence sentence helpers', () => {
     expect(sentence).toContain('(50%)')
     expect(sentence).toContain('7 of 12 captures came from your taps')
     expect(sentence).toContain('model completed 5')
-    expect(sentence).toContain('1 additional tap became a protected escape')
+    expect(sentence).toContain('classroom model protected 1 additional tap for comparison')
   })
 
   it('does not mention protected escapes when the adapter does not provide them', () => {
     const { protectedEscapes: _protectedEscapes, ...withoutProtectedEscapes } =
       evidence
     expect(formatRateBasedGenerationEvidence(withoutProtectedEscapes)).not.toContain(
-      'protected escape',
+      'protected',
     )
   })
 

@@ -1,5 +1,13 @@
 import Phaser from 'phaser'
 import type { HabitatId, MorphId } from '../simulation/index.ts'
+import {
+  createActorLayout,
+  remapActorLayout,
+  type ActorLayout,
+  type ActorMovementState,
+  type Bounds,
+  type Viewport,
+} from './layout.ts'
 
 export type SceneOrganism = {
   id: string
@@ -30,35 +38,83 @@ export type HabitatSceneEvents = {
   onRoundEnd: (event: { roundId: string }) => void
 }
 
-type Actor = {
-  container: Phaser.GameObjects.Container
+export type PauseReason = 'host' | 'visibility' | 'blur' | 'resize'
+export type RoundInteractionState =
+  | 'loading'
+  | 'ready'
+  | 'running'
+  | 'paused'
+  | 'resolving'
+  | 'fallback'
+
+export type ActorDiagnostic = {
+  id: string
   morphId: MorphId
-  vx: number
-  phase: number
-  baseY: number
-  habitatId: HabitatId
+  center: { x: number; y: number; coordinateSpace: 'canvas' }
+  hitBounds: Bounds
+  visualBounds: Bounds
+  movementState: ActorMovementState
+  landed: boolean
+  velocity: { x: number; y: number }
+  eligible: boolean
+  locked: boolean
 }
 
-function seededUnit(seed: number): () => number {
-  let value = seed >>> 0
-  return () => {
-    value += 0x6d2b79f5
-    let mixed = value
-    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1)
-    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61)
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296
+export type SceneDiagnostics = {
+  roundState: RoundInteractionState
+  roundId: string | null
+  remainingMs: number
+  reducedMotion: boolean
+  actors: ActorDiagnostic[]
+  pauseReasons: PauseReason[]
+  actorCount: number
+  tweenCount: number
+  timerCount: number
+  listenerCount: number
+  latestFeedbackLatencyMs: number | null
+  frameMetrics: {
+    averageFps: number
+    medianFrameTimeMs: number
+    p95FrameTimeMs: number
+    framesOver50Ms: number
+    sampledFrames: number
   }
+  duplicateRoundEndCount: number
 }
+
+type Actor = {
+  container: Phaser.GameObjects.Container
+  layout: ActorLayout
+  direction: -1 | 1
+  baseX: number
+  baseY: number
+  locked: boolean
+  movementState: ActorMovementState
+  velocity: { x: number; y: number }
+}
+
+const MAX_FRAME_SAMPLES = 3_600
 
 export class HabitatScene extends Phaser.Scene {
   private readonly eventsBridge: HabitatSceneEvents
   private readonly onReady: () => void
   private readonly actors = new Map<string, Actor>()
+  private readonly pauseReasons = new Set<PauseReason>()
+  private readonly feedbackTimers = new Set<Phaser.Time.TimerEvent>()
+  private readonly pendingTapStartedAt = new Map<string, number>()
+  private readonly backgroundObjects: Phaser.GameObjects.GameObject[] = []
+  private readonly frameSamples: number[] = []
   private round: SceneRound | null = null
   private remainingMs = 0
-  private lastTickBucket = -1
+  private lastTickSecond = -1
   private running = false
-  private pausedByHost = false
+  private roundEndEmitted = false
+  private duplicateRoundEndCount = 0
+  private movementElapsedMs = 0
+  private roundState: RoundInteractionState = 'loading'
+  private stateBeforePause: 'ready' | 'running' = 'ready'
+  private latestFeedbackLatencyMs: number | null = null
+  private inputHandlerInstalled = false
 
   constructor(eventsBridge: HabitatSceneEvents, onReady: () => void) {
     super({ key: 'habitat' })
@@ -67,127 +123,213 @@ export class HabitatScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.input.on(
-      'pointerdown',
-      (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
-        if (!this.running || !this.round || currentlyOver.length > 0) return
-        this.eventsBridge.onMiss({
-          roundId: this.round.roundId,
-          elapsedMs: this.elapsedMs(),
-        })
-        this.flashMiss(pointer.worldX, pointer.worldY)
-      },
-    )
+    this.input.topOnly = true
+    if (!this.inputHandlerInstalled) {
+      this.input.on('pointerdown', this.handleBackgroundPointer, this)
+      this.inputHandlerInstalled = true
+    }
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this)
+    this.roundState = 'ready'
     this.onReady()
   }
 
   startRound(round: SceneRound): void {
     this.prepareRound(round)
     this.running = true
+    this.roundState = this.pauseReasons.size > 0 ? 'paused' : 'running'
+    this.stateBeforePause = 'running'
     this.eventsBridge.onTick({ roundId: round.roundId, remainingMs: round.durationMs })
   }
 
   prepareRound(round: SceneRound): void {
-    this.clearActors()
+    this.clearRoundObjects()
     this.round = round
     this.remainingMs = round.durationMs
-    this.lastTickBucket = -1
+    this.lastTickSecond = -1
     this.running = false
-    this.pausedByHost = false
+    this.roundEndEmitted = false
+    this.movementElapsedMs = 0
+    this.latestFeedbackLatencyMs = null
     this.drawHabitat(round.habitatId)
     this.createActors(round)
+    this.stateBeforePause = 'ready'
+    this.roundState = this.pauseReasons.size > 0 ? 'paused' : 'ready'
   }
 
   finishRound(): void {
     this.running = false
+    this.roundState = 'resolving'
   }
 
   confirmCapture(organismId: string): void {
     const actor = this.actors.get(organismId)
     if (!actor) return
     this.actors.delete(organismId)
+    actor.locked = true
     actor.container.disableInteractive()
+
+    const outline = this.add
+      .rectangle(
+        actor.container.x,
+        actor.container.y,
+        actor.layout.hitBounds.width,
+        actor.layout.hitBounds.height,
+      )
+      .setStrokeStyle(3, 0xffffff, 1)
+      .setDepth(29)
+    const label = this.feedbackLabel(actor.container.x, actor.container.y - 31, 'Caught')
+    this.recordFeedbackLatency(organismId)
+
     if (this.round?.reducedMotion) {
       actor.container.destroy(true)
+      this.destroyAfter([outline, label], 160)
       return
     }
     this.tweens.add({
       targets: actor.container,
       alpha: 0,
-      scale: 0.35,
       duration: 160,
       ease: 'Quad.easeIn',
       onComplete: () => actor.container.destroy(true),
     })
+    this.destroyAfter([outline, label], 160)
   }
 
   showEscape(organismId: string): void {
     const actor = this.actors.get(organismId)
     if (!actor) return
-    const label = this.add
-      .text(actor.container.x, actor.container.y - 28, 'Escaped into cover', {
-        color: '#ffffff',
-        backgroundColor: '#173f3a',
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '13px',
-        fontStyle: 'bold',
-        padding: { x: 7, y: 4 },
-      })
-      .setOrigin(0.5)
-      .setDepth(20)
-    if (this.round?.reducedMotion) {
-      this.time.delayedCall(500, () => label.destroy())
+    actor.locked = true
+    actor.movementState = actor.layout.habitatId === 'bark_moths'
+      ? { kind: 'moth_landed' }
+      : { kind: 'fish_patrol', direction: actor.direction }
+    const label = this.feedbackLabel(
+      actor.container.x,
+      actor.container.y - 31,
+      'Protected for comparison — enough parents must remain',
+    )
+    this.recordFeedbackLatency(organismId)
+    this.destroyAfter([label], 2_000)
+  }
+
+  setPauseReason(reason: PauseReason, active: boolean): void {
+    if (active) {
+      if (this.pauseReasons.size === 0 && (this.roundState === 'ready' || this.roundState === 'running')) {
+        this.stateBeforePause = this.roundState
+      }
+      this.pauseReasons.add(reason)
+      if (this.roundState !== 'loading' && this.roundState !== 'resolving') this.roundState = 'paused'
       return
     }
-    this.tweens.add({
-      targets: [actor.container, label],
-      x: '+=18',
-      alpha: { from: 1, to: 0.45 },
-      yoyo: true,
-      duration: 180,
-      onComplete: () => label.destroy(),
-    })
+
+    this.pauseReasons.delete(reason)
+    if (this.pauseReasons.size === 0 && this.roundState === 'paused') {
+      this.roundState = this.stateBeforePause
+    }
   }
 
   setHostPaused(paused: boolean): void {
-    this.pausedByHost = paused
+    this.setPauseReason('host', paused)
+  }
+
+  resizeActors(oldViewport: Viewport, newViewport: Viewport): void {
+    if (!this.round) return
+    const currentLayouts = [...this.actors.values()].map((actor) => {
+      const hitWidth = actor.layout.hitBounds.width
+      const hitHeight = actor.layout.hitBounds.height
+      return {
+        ...actor.layout,
+        normalizedPosition: {
+          x: actor.container.x / oldViewport.width,
+          y: actor.container.y / oldViewport.height,
+        },
+        hitBounds: centeredBounds(actor.container.x, actor.container.y, hitWidth, hitHeight),
+        visualBounds: centeredBounds(
+          actor.container.x,
+          actor.container.y,
+          actor.layout.visualBounds.width,
+          actor.layout.visualBounds.height,
+        ),
+      }
+    })
+    const remapped = remapActorLayout(currentLayouts, oldViewport, newViewport)
+    for (const layout of remapped) {
+      const actor = this.actors.get(layout.id)
+      if (!actor) continue
+      actor.layout = layout
+      actor.baseX = layout.hitBounds.x + layout.hitBounds.width / 2
+      actor.baseY = layout.hitBounds.y + layout.hitBounds.height / 2
+      actor.container.setPosition(actor.baseX, actor.baseY)
+    }
+    this.drawHabitat(this.round.habitatId)
+  }
+
+  getDiagnostics(): SceneDiagnostics {
+    const sortedSamples = [...this.frameSamples].sort((first, second) => first - second)
+    const averageFrameTime = this.frameSamples.length > 0
+      ? this.frameSamples.reduce((sum, value) => sum + value, 0) / this.frameSamples.length
+      : 0
+    let listenerCount = this.inputHandlerInstalled ? this.input.listenerCount('pointerdown') : 0
+    for (const actor of this.actors.values()) listenerCount += actor.container.listenerCount('pointerdown')
+
+    return {
+      roundState: this.roundState,
+      roundId: this.round?.roundId ?? null,
+      remainingMs: this.remainingMs,
+      reducedMotion: this.round?.reducedMotion ?? false,
+      actors: [...this.actors.values()].map((actor) => this.actorDiagnostic(actor)),
+      pauseReasons: [...this.pauseReasons].sort(),
+      actorCount: this.actors.size,
+      tweenCount: this.tweens?.getTweens().length ?? 0,
+      timerCount: this.feedbackTimers.size,
+      listenerCount,
+      latestFeedbackLatencyMs: this.latestFeedbackLatencyMs,
+      frameMetrics: {
+        averageFps: averageFrameTime > 0 ? 1000 / averageFrameTime : 0,
+        medianFrameTimeMs: percentile(sortedSamples, 0.5),
+        p95FrameTimeMs: percentile(sortedSamples, 0.95),
+        framesOver50Ms: this.frameSamples.filter((sample) => sample > 50).length,
+        sampledFrames: this.frameSamples.length,
+      },
+      duplicateRoundEndCount: this.duplicateRoundEndCount,
+    }
   }
 
   update(_time: number, delta: number): void {
-    if (!this.round || !this.running || this.pausedByHost) return
-
+    if (!this.round || !this.running || this.pauseReasons.size > 0) return
+    this.captureFrameSample(delta)
     this.remainingMs = Math.max(0, this.remainingMs - delta)
-    const bucket = Math.ceil(this.remainingMs / 250)
-    if (bucket !== this.lastTickBucket) {
-      this.lastTickBucket = bucket
-      this.eventsBridge.onTick({
-        roundId: this.round.roundId,
-        remainingMs: this.remainingMs,
-      })
+    this.movementElapsedMs += delta
+    const second = Math.ceil(this.remainingMs / 1000)
+    if (second !== this.lastTickSecond) {
+      this.lastTickSecond = second
+      this.eventsBridge.onTick({ roundId: this.round.roundId, remainingMs: this.remainingMs })
     }
 
-    const width = this.scale.width
-    const height = this.scale.height
-    for (const actor of this.actors.values()) {
-      const { container } = actor
-      container.x += actor.vx * delta
-      if (container.x < -42) container.x = width + 42
-      if (container.x > width + 42) container.x = -42
-      if (!this.round.reducedMotion) {
-        const amplitude = actor.habitatId === 'bark_moths' ? 3 : 7
-        const divisor = actor.habitatId === 'bark_moths' ? 1_450 : 750
-        container.y = Math.min(
-          height - 34,
-          Math.max(42, actor.baseY + Math.sin(this.time.now / divisor + actor.phase) * amplitude),
-        )
-      }
-    }
+    for (const actor of this.actors.values()) this.updateActor(actor, delta)
 
-    if (this.remainingMs <= 0) {
-      const roundId = this.round.roundId
-      this.running = false
-      this.eventsBridge.onRoundEnd({ roundId })
+    if (this.remainingMs <= 0) this.emitRoundEnd()
+  }
+
+  private readonly handleBackgroundPointer = (
+    pointer: Phaser.Input.Pointer,
+    currentlyOver: Phaser.GameObjects.GameObject[],
+  ): void => {
+    if (!this.running || !this.round || this.pauseReasons.size > 0 || currentlyOver.length > 0) return
+    const startedAt = performance.now()
+    this.eventsBridge.onMiss({ roundId: this.round.roundId, elapsedMs: this.elapsedMs() })
+    this.flashMiss(pointer.worldX, pointer.worldY)
+    this.latestFeedbackLatencyMs = Math.max(0, performance.now() - startedAt)
+  }
+
+  private readonly handleShutdown = (): void => {
+    if (this.inputHandlerInstalled) {
+      this.input.off('pointerdown', this.handleBackgroundPointer, this)
+      this.inputHandlerInstalled = false
     }
+    this.clearRoundObjects()
+    this.pauseReasons.clear()
+    this.round = null
+    this.roundState = 'loading'
   }
 
   private elapsedMs(): number {
@@ -196,86 +338,80 @@ export class HabitatScene extends Phaser.Scene {
   }
 
   private drawHabitat(habitatId: HabitatId): void {
-    this.children.removeAll(true)
+    for (const object of this.backgroundObjects) object.destroy()
+    this.backgroundObjects.length = 0
     const width = this.scale.width
     const height = this.scale.height
     const background = this.add.graphics().setDepth(-10)
+    this.backgroundObjects.push(background)
 
     if (habitatId === 'reef_fish') {
       background.fillStyle(0x1a6f83, 1).fillRect(0, 0, width, height)
       background.fillStyle(0x15586a, 0.55)
-      for (let y = 34; y < height; y += 58) {
-        background.fillRoundedRect(0, y, width, 12, 6)
-      }
+      for (let y = 34; y < height; y += 58) background.fillRoundedRect(0, y, width, 12, 6)
       background.fillStyle(0xd9b56d, 0.85).fillRect(0, height - 54, width, 54)
       background.fillStyle(0x4c8a66, 0.75)
       for (let x = 25; x < width; x += 82) {
         background.fillRoundedRect(x, height - 96, 14, 50, 7)
         background.fillCircle(x + 7, height - 100, 15)
       }
-    } else {
-      background.fillStyle(0x72513a, 1).fillRect(0, 0, width, height)
-      background.lineStyle(5, 0x4e3427, 0.6)
-      for (let x = -20; x < width + 40; x += 54) {
-        background.beginPath()
-        background.moveTo(x, 0)
-        background.lineTo(x + 28, height)
-        background.strokePath()
-      }
-      background.lineStyle(2, 0xa7835f, 0.6)
-      for (let y = 24; y < height; y += 44) {
-        background.beginPath()
-        background.moveTo(0, y)
-        background.lineTo(width, y + 18)
-        background.strokePath()
-      }
+      return
+    }
+
+    background.fillStyle(0x72513a, 1).fillRect(0, 0, width, height)
+    background.lineStyle(5, 0x4e3427, 0.6)
+    for (let x = -20; x < width + 40; x += 54) {
+      background.beginPath().moveTo(x, 0).lineTo(x + 28, height).strokePath()
+    }
+    background.lineStyle(2, 0xa7835f, 0.6)
+    for (let y = 24; y < height; y += 44) {
+      background.beginPath().moveTo(0, y).lineTo(width, y + 18).strokePath()
     }
   }
 
   private createActors(round: SceneRound): void {
-    const random = seededUnit(round.placementSeed)
-    const movementRandom = seededUnit(round.movementSeed)
-    const width = this.scale.width
-    const height = this.scale.height
-    const columns = 8
-    const rows = 5
-    const cellWidth = width / columns
-    const usableHeight = Math.max(180, height - 88)
-    const cellHeight = usableHeight / rows
-
-    round.organisms.forEach((organism, index) => {
-      const column = index % columns
-      const row = Math.floor(index / columns)
-      const x = cellWidth * (column + 0.5) + (random() - 0.5) * cellWidth * 0.48
-      const y = 28 + cellHeight * (row + 0.5) + (random() - 0.5) * cellHeight * 0.35
-      const container = this.createOrganism(round.habitatId, organism.morphId)
-      container.setPosition(x, y).setDepth(5 + row)
-      container
-        .setSize(58 * round.hitAreaScale, 42 * round.hitAreaScale)
-        .setInteractive({ useHandCursor: true })
+    const layouts = createActorLayout(round, { width: this.scale.width, height: this.scale.height })
+    for (const layout of layouts) {
+      const centerX = layout.hitBounds.x + layout.hitBounds.width / 2
+      const centerY = layout.hitBounds.y + layout.hitBounds.height / 2
+      const container = this.createOrganism(round.habitatId, layout.morphId)
+      container.setPosition(centerX, centerY).setDepth(5 + Math.floor(layout.slot / 8))
+      container.setSize(layout.hitBounds.width, layout.hitBounds.height)
+      container.setInteractive(
+        new Phaser.Geom.Rectangle(
+          0,
+          0,
+          layout.hitBounds.width,
+          layout.hitBounds.height,
+        ),
+        Phaser.Geom.Rectangle.Contains,
+      )
+      const actor: Actor = {
+        container,
+        layout,
+        direction: layout.direction,
+        baseX: centerX,
+        baseY: centerY,
+        locked: false,
+        movementState: layout.habitatId === 'reef_fish'
+          ? { kind: 'fish_patrol', direction: layout.direction }
+          : { kind: 'moth_landed' },
+        velocity: { x: 0, y: 0 },
+      }
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         pointer.event.stopPropagation()
-        if (!this.running || !this.round) return
+        if (!this.running || !this.round || this.pauseReasons.size > 0 || actor.locked) return
+        actor.locked = true
+        this.pendingTapStartedAt.set(layout.id, performance.now())
         this.eventsBridge.onOrganismTapped({
           roundId: this.round.roundId,
-          organismId: organism.id,
-          morphId: organism.morphId,
+          organismId: layout.id,
+          morphId: layout.morphId,
           elapsedMs: this.elapsedMs(),
         })
       })
-      this.actors.set(organism.id, {
-        container,
-        morphId: organism.morphId,
-        vx:
-          (round.habitatId === 'bark_moths' ? 0.006 : 0.018) *
-          (1 + movementRandom()) *
-          round.movementScale *
-          (movementRandom() > 0.5 ? 1 : -1),
-        phase: movementRandom() * Math.PI * 2,
-        baseY: y,
-        habitatId: round.habitatId,
-      })
-    })
+      this.actors.set(layout.id, actor)
+    }
   }
 
   private createOrganism(habitatId: HabitatId, morphId: MorphId): Phaser.GameObjects.Container {
@@ -316,20 +452,165 @@ export class HabitatScene extends Phaser.Scene {
     return container
   }
 
-  private flashMiss(x: number, y: number): void {
-    if (this.round?.reducedMotion) return
-    const ring = this.add.circle(x, y, 10).setStrokeStyle(3, 0xffffff, 0.9).setDepth(30)
-    this.tweens.add({
-      targets: ring,
-      alpha: 0,
-      scale: 1.8,
-      duration: 180,
-      onComplete: () => ring.destroy(),
-    })
+  private updateActor(actor: Actor, delta: number): void {
+    if (!this.round || actor.locked) {
+      actor.velocity = { x: 0, y: 0 }
+      return
+    }
+    const profile = actor.layout.movementProfile
+    if (profile.kind === 'fish_patrol') {
+      const beforeX = actor.container.x
+      const beforeY = actor.container.y
+      const left = actor.layout.patrolBounds.x
+      const right = left + actor.layout.patrolBounds.width
+      actor.container.x += actor.direction * profile.speedPxPerSecond * (delta / 1000)
+      if (actor.container.x <= left || actor.container.x >= right) {
+        actor.container.x = Math.min(right, Math.max(left, actor.container.x))
+        actor.direction = actor.direction === 1 ? -1 : 1
+      }
+      actor.container.scaleX = actor.direction
+      const patrolTop = actor.layout.patrolBounds.y
+      const patrolBottom = patrolTop + actor.layout.patrolBounds.height
+      actor.container.y = clamp(
+        actor.baseY + Math.sin(this.movementElapsedMs / 750 + profile.phase) * profile.verticalAmplitude,
+        patrolTop,
+        patrolBottom,
+      )
+      actor.movementState = { kind: 'fish_patrol', direction: actor.direction }
+      actor.velocity = {
+        x: (actor.container.x - beforeX) / Math.max(delta / 1000, 0.001),
+        y: (actor.container.y - beforeY) / Math.max(delta / 1000, 0.001),
+      }
+      return
+    }
+
+    if (this.round.reducedMotion) {
+      actor.container.setPosition(actor.baseX, actor.baseY)
+      actor.movementState = { kind: 'moth_landed' }
+      actor.velocity = { x: 0, y: 0 }
+      return
+    }
+    const cohortWindow = profile.driftDurationMs
+    const activeCohort = Math.floor(this.movementElapsedMs / cohortWindow) % 5
+    const progress = (this.movementElapsedMs % cohortWindow) / cohortWindow
+    if (activeCohort !== profile.driftCohort) {
+      actor.container.setPosition(actor.baseX, actor.baseY)
+      actor.movementState = { kind: 'moth_landed' }
+      actor.velocity = { x: 0, y: 0 }
+      return
+    }
+    const beforeX = actor.container.x
+    const beforeY = actor.container.y
+    const drift = Math.sin(progress * Math.PI)
+    const patrolLeft = actor.layout.patrolBounds.x
+    const patrolRight = patrolLeft + actor.layout.patrolBounds.width
+    const patrolTop = actor.layout.patrolBounds.y
+    const patrolBottom = patrolTop + actor.layout.patrolBounds.height
+    actor.container.x = clamp(actor.baseX + profile.driftX * drift, patrolLeft, patrolRight)
+    actor.container.y = clamp(actor.baseY + profile.driftY * drift, patrolTop, patrolBottom)
+    actor.movementState = { kind: 'moth_drifting', progress }
+    actor.velocity = {
+      x: (actor.container.x - beforeX) / Math.max(delta / 1000, 0.001),
+      y: (actor.container.y - beforeY) / Math.max(delta / 1000, 0.001),
+    }
   }
 
-  private clearActors(): void {
-    for (const actor of this.actors.values()) actor.container.destroy(true)
-    this.actors.clear()
+  private flashMiss(x: number, y: number): void {
+    const ring = this.add.circle(x, y, 13).setStrokeStyle(3, 0xffffff, 1).setDepth(30)
+    const label = this.feedbackLabel(x, y - 30, 'Miss — no penalty')
+    this.destroyAfter([ring, label], 300)
   }
+
+  private feedbackLabel(x: number, y: number, message: string): Phaser.GameObjects.Text {
+    return this.add
+      .text(x, y, message, {
+        color: '#ffffff',
+        backgroundColor: '#173f3a',
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        padding: { x: 7, y: 4 },
+        align: 'center',
+        wordWrap: { width: Math.max(180, this.scale.width - 24) },
+      })
+      .setOrigin(0.5)
+      .setDepth(30)
+  }
+
+  private destroyAfter(objects: Phaser.GameObjects.GameObject[], delayMs: number): void {
+    let timer: Phaser.Time.TimerEvent
+    timer = this.time.delayedCall(delayMs, () => {
+      for (const object of objects) object.destroy()
+      this.feedbackTimers.delete(timer)
+    })
+    this.feedbackTimers.add(timer)
+  }
+
+  private recordFeedbackLatency(organismId: string): void {
+    const startedAt = this.pendingTapStartedAt.get(organismId)
+    if (startedAt !== undefined) {
+      this.latestFeedbackLatencyMs = Math.max(0, performance.now() - startedAt)
+      this.pendingTapStartedAt.delete(organismId)
+    }
+  }
+
+  private emitRoundEnd(): void {
+    if (!this.round) return
+    if (this.roundEndEmitted) {
+      this.duplicateRoundEndCount += 1
+      return
+    }
+    this.roundEndEmitted = true
+    this.running = false
+    this.roundState = 'resolving'
+    this.eventsBridge.onRoundEnd({ roundId: this.round.roundId })
+  }
+
+  private actorDiagnostic(actor: Actor): ActorDiagnostic {
+    const x = actor.container.x
+    const y = actor.container.y
+    return {
+      id: actor.layout.id,
+      morphId: actor.layout.morphId,
+      center: { x, y, coordinateSpace: 'canvas' },
+      hitBounds: centeredBounds(x, y, actor.layout.hitBounds.width, actor.layout.hitBounds.height),
+      visualBounds: centeredBounds(x, y, actor.layout.visualBounds.width, actor.layout.visualBounds.height),
+      movementState: actor.movementState,
+      landed: actor.movementState.kind === 'moth_landed',
+      velocity: actor.velocity,
+      eligible: !actor.locked && Boolean(actor.container.input?.enabled),
+      locked: actor.locked,
+    }
+  }
+
+  private captureFrameSample(delta: number): void {
+    if (!Number.isFinite(delta) || delta <= 0) return
+    this.frameSamples.push(delta)
+    if (this.frameSamples.length > MAX_FRAME_SAMPLES) this.frameSamples.shift()
+  }
+
+  private clearRoundObjects(): void {
+    this.tweens?.killAll()
+    this.time?.removeAllEvents()
+    this.feedbackTimers.clear()
+    this.pendingTapStartedAt.clear()
+    this.actors.clear()
+    this.backgroundObjects.length = 0
+    this.children?.removeAll(true)
+  }
+}
+
+function centeredBounds(x: number, y: number, width: number, height: number): Bounds {
+  return { x: x - width / 2, y: y - height / 2, width, height }
+}
+
+function percentile(sortedValues: readonly number[], fraction: number): number {
+  if (sortedValues.length === 0) return 0
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.ceil(sortedValues.length * fraction) - 1))
+  return sortedValues[index]
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return (min + max) / 2
+  return Math.min(max, Math.max(min, value))
 }

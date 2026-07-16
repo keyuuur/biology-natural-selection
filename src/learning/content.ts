@@ -64,7 +64,7 @@ export const MODEL_SAFEGUARD_DISCLOSURES = {
   comparisonFloor:
     'This classroom model keeps at least three surviving parents and at least four offspring of each inherited pattern so you can compare both patterns. In real populations, a variation can disappear.',
   protectedEscape:
-    'When only three parents of a pattern remain, another tap makes that organism escape into cover. An escape is not a capture or a miss.',
+    'When only three parents of a pattern remain, this classroom model protects another tapped organism for comparison. Model protection is not a capture or a miss, and it does not represent a natural behavior.',
   automaticCompletion:
     'If you make fewer than 12 accepted captures, the computer completes the remaining predation events using the model\'s visibility settings. Modeled captures change the population but do not add predator points.',
   modelBoundary:

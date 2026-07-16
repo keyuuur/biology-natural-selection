@@ -13,9 +13,26 @@ locally or under the Playwright test command:
 - `e2eSeed`: supplies the initial deterministic placement/selection seed.
 - `e2eRenderer=fail`: forces the DOM observation fallback.
 - `e2eStorage=fail`: makes saver calls fail while keeping the study playable.
+- `qa=1`: exposes the network-free interaction diagnostics bridge in development
+  or a build created with `VITE_INTERACTION_QA=1`.
 
 Production sessions must ignore these controls. Replay must replace the supplied
 initial seed with a fresh seed.
+
+## Interaction QA bridge
+
+The direct-touch suite reads `window.__NS_INTERACTION_QA__.snapshot()`. Actor
+centers and hit bounds are CSS viewport coordinates so they can be passed to
+`page.touchscreen.tap` without reaching through Phaser internals. The snapshot
+contains round state, actor targets, renderer lifecycle counts, pause reasons,
+feedback latency, frame metrics, and duplicate-completion diagnostics. It is
+in-memory only and contains no identity or assessment responses.
+
+Chromium runs the complete suite. The `webkit-ipad` project runs only interaction
+tests tagged `@webkit`. The 60-second performance sample and three-study lifecycle
+sample are tagged `@soak` and run only when `RUN_INTERACTION_SOAK=1` is set.
+The dedicated landscape resolving artifact runs only when
+`CAPTURE_INTERACTION_SCREENSHOTS=1` is set.
 
 ## Required stable test IDs
 
