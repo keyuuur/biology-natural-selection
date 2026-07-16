@@ -1,69 +1,177 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import type { PlayerRoundMetrics } from '../simulation/index.ts'
 import { useGameSession } from './useGameSession.ts'
 
-describe('useGameSession', () => {
-  it('enforces the complete learning flow and creates a new replay session', () => {
-    const { result } = renderHook(() => useGameSession())
-    const originalSessionId = result.current.session.sessionId
+function observationRound(seed: number): PlayerRoundMetrics {
+  return {
+    seed,
+    manualCatches: { camouflaged: 0, conspicuous: 0 },
+    misses: 0,
+    protectedEscapes: 0,
+    elapsedMs: 25_000,
+    timingMode: 'standard',
+    inputMode: 'observation',
+    fallbackUsed: true,
+  }
+}
 
-    expect(result.current.session.stage).toBe('mission')
-    act(() => result.current.enterObserve())
-    expect(result.current.session.stage).toBe('observe')
-    act(() => result.current.enterPrediction())
-    expect(result.current.session.stage).toBe('prediction')
+function completeCurrentHabitat(
+  result: ReturnType<typeof renderHook<ReturnType<typeof useGameSession>, unknown>>['result'],
+) {
+  for (let generation = 1; generation <= 3; generation += 1) {
+    expect(result.current.session.stage).toBe('round')
+    act(() => result.current.completeRound(observationRound(result.current.roundSeed)))
+    expect(result.current.session.stage).toBe('generation_review')
+    expect(result.current.currentSimulation.generation).toBe(generation)
+    act(() => result.current.continueAfterReview())
+  }
+  expect(result.current.session.stage).toBe('habitat_summary')
+}
+
+function selectRequiredEvidence(
+  result: ReturnType<typeof renderHook<ReturnType<typeof useGameSession>, unknown>>['result'],
+) {
+  for (const [habitatId, generation] of [
+    ['reef_fish', 0],
+    ['reef_fish', 3],
+    ['bark_moths', 0],
+    ['bark_moths', 3],
+  ] as const) {
     act(() =>
-      result.current.commitPrediction(
-        'higher_speed',
-        'Limited, distant food may affect which deer leave offspring.',
-      ),
-    )
-    expect(result.current.session.stage).toBe('generations')
-
-    for (let generation = 1; generation <= 5; generation += 1) {
-      let prepared: ReturnType<typeof result.current.prepareGeneration> | null = null
-      act(() => {
-        prepared = result.current.prepareGeneration()
-      })
-      act(() => result.current.commitGeneration(prepared!.nextState))
-      expect(result.current.session.simulation.generation).toBe(generation)
-    }
-
-    expect(result.current.session.stage).toBe('misconception')
-    expect(
-      result.current.graphPoints.map((point) => point.percentages.higher_speed),
-    ).toEqual([50, 60, 65, 75, 85, 90])
-
-    act(() => result.current.answerMisconception('individual-change', false))
-    act(() => result.current.enterEvidence())
-    expect(result.current.session.stage).toBe('misconception')
-
-    act(() => result.current.answerMisconception('population-selection', true))
-    act(() => result.current.enterEvidence())
-    expect(result.current.session.stage).toBe('evidence')
-
-    act(() => result.current.toggleEvidenceGeneration(0))
-    act(() => result.current.enterCer())
-    expect(result.current.session.stage).toBe('evidence')
-    act(() => result.current.toggleEvidenceGeneration(5))
-    act(() => result.current.selectSurvivorGeneration(3))
-    act(() => result.current.enterCer())
-    expect(result.current.session.stage).toBe('cer')
-
-    act(() =>
-      result.current.completeCer({
-        claim: 'higher_speed',
-        reasoning:
-          'Higher-speed deer left more offspring, so their inherited trait increased in the population.',
+      result.current.togglePopulationEvidence({
+        kind: 'population',
+        habitatId,
+        generation,
       }),
     )
+  }
+  act(() =>
+    result.current.selectComparisonEvidence({
+      kind: 'comparison',
+      habitatId: 'reef_fish',
+      generation: 1,
+    }),
+  )
+}
+
+describe('useGameSession v2', () => {
+  it('gates prediction behind timing and runs three independent generations per habitat', () => {
+    const { result } = renderHook(() => useGameSession())
+
+    expect(result.current.session.stage).toBe('mission')
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'This prediction must not be accepted before timing is selected.',
+      ),
+    )
+    expect(result.current.session.stage).toBe('mission')
+    expect(result.current.session.predictions.reef_fish).toBeNull()
+
+    act(() => result.current.selectTiming('standard'))
+    expect(result.current.session.stage).toBe('prediction')
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'Reef-matched fish may be harder for predators to detect.',
+      ),
+    )
+    expect(result.current.session.stage).toBe('round')
+
+    completeCurrentHabitat(result)
+    expect(result.current.session.habitats.reef_fish.simulation.history).toHaveLength(3)
+    expect(result.current.session.habitats.bark_moths.simulation.generation).toBe(0)
+
+    act(() => result.current.continueAfterHabitat())
+    expect(result.current.session.currentHabitatId).toBe('bark_moths')
+    expect(result.current.session.stage).toBe('prediction')
+    expect(result.current.currentSimulation.counts).toEqual({
+      camouflaged: 20,
+      conspicuous: 20,
+    })
+
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'Bark-matched moths may be harder for predators to detect.',
+      ),
+    )
+    completeCurrentHabitat(result)
+    expect(result.current.session.habitats.bark_moths.simulation.history).toHaveLength(3)
+    expect(result.current.session.habitats.reef_fish.simulation.history).toHaveLength(3)
+
+    act(() => result.current.continueAfterHabitat())
+    expect(result.current.session.stage).toBe('evidence')
+  })
+
+  it('requires evidence and corrected checks before CER, then replays with a fresh session', () => {
+    const { result } = renderHook(() => useGameSession())
+    const originalSessionId = result.current.session.sessionId
+    const originalSeed = result.current.session.seed
+
+    act(() => result.current.selectTiming('standard'))
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'The reef-matched inherited pattern may reduce predation.',
+      ),
+    )
+    completeCurrentHabitat(result)
+    act(() => result.current.continueAfterHabitat())
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'The bark-matched inherited pattern may reduce predation.',
+      ),
+    )
+    completeCurrentHabitat(result)
+    act(() => result.current.continueAfterHabitat())
+
+    act(() => result.current.enterChecks())
+    expect(result.current.session.stage).toBe('evidence')
+    selectRequiredEvidence(result)
+    act(() => result.current.enterChecks())
+    expect(result.current.session.stage).toBe('checks')
+
+    result.current.misconceptionQuestions.forEach((question, index) => {
+      const correctChoice = question.choices.find((choice) => choice.isCorrect)
+      expect(correctChoice).toBeDefined()
+      if (index === 0) {
+        const incorrectChoice = question.choices.find((choice) => !choice.isCorrect)
+        expect(incorrectChoice).toBeDefined()
+        act(() => result.current.answerCheck(question.id, incorrectChoice!.id, false))
+        act(() => result.current.nextCheck())
+        expect(result.current.session.currentCheckIndex).toBe(0)
+      }
+      act(() => result.current.answerCheck(question.id, correctChoice!.id, true))
+      act(() => result.current.nextCheck())
+    })
+
+    expect(result.current.session.stage).toBe('cer')
+    act(() =>
+      result.current.completeCer({
+        claimId: 'data-supported-selection',
+        reasoning:
+          'Inherited variation affected survival and reproduction, so offspring changed each pattern percentage in the population.',
+      }),
+    )
+
     expect(result.current.session.stage).toBe('results')
-    expect(result.current.session.completedResult?.completionState).toBe('complete')
-    expect(result.current.session.completedResult?.generations).toHaveLength(5)
-    expect(result.current.session.completedResult?.cer.evidence).toHaveLength(3)
+    expect(result.current.session.completedResult?.habitats.reef_fish.generations).toHaveLength(3)
+    expect(result.current.session.completedResult?.habitats.bark_moths.generations).toHaveLength(3)
+    expect(result.current.session.completedResult?.scienceCompletion).toMatchObject({
+      firstAttemptCorrect: 3,
+      questionCount: 4,
+      evidenceComplete: true,
+      cerComplete: true,
+    })
 
     act(() => result.current.replay())
     expect(result.current.session.stage).toBe('mission')
     expect(result.current.session.sessionId).not.toBe(originalSessionId)
+    expect(result.current.session.seed).not.toBe(originalSeed)
+    expect(result.current.session.habitats.reef_fish.simulation.generation).toBe(0)
+    expect(result.current.session.habitats.bark_moths.simulation.generation).toBe(0)
   })
 })

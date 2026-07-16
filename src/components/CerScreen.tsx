@@ -1,17 +1,39 @@
 import { useState } from 'react'
-import type { TraitId } from '../simulation/index.ts'
 import type { CerDraft } from '../game/sessionTypes.ts'
+import {
+  CER_FORMATIVE_NOTE,
+  CER_REASONING_PROMPT,
+  CER_REQUIRED_VOCABULARY,
+  type CerClaimChoice,
+} from '../learning/index.ts'
 import { ScreenCard } from './ScreenCard.tsx'
 
 type CerScreenProps = {
+  claims: readonly CerClaimChoice[]
   evidenceTexts: readonly string[]
+  initialDraft: CerDraft
+  onDraftChange?: (draft: CerDraft) => void
   onComplete: (cer: CerDraft) => void
 }
 
-export function CerScreen({ evidenceTexts, onComplete }: CerScreenProps) {
-  const [claim, setClaim] = useState<TraitId | null>(null)
-  const [reasoning, setReasoning] = useState('')
-  const canComplete = claim !== null && reasoning.trim().length > 0
+const MIN_REASONING_LENGTH = 40
+
+export function CerScreen({
+  claims,
+  evidenceTexts,
+  initialDraft,
+  onDraftChange,
+  onComplete,
+}: CerScreenProps) {
+  const [draft, setDraft] = useState<CerDraft>(initialDraft)
+  const selectedClaim = claims.find((claim) => claim.id === draft.claimId)
+  const reasoningLength = draft.reasoning.trim().length
+  const canComplete = draft.claimId !== null && reasoningLength >= MIN_REASONING_LENGTH
+
+  function updateDraft(nextDraft: CerDraft) {
+    setDraft(nextDraft)
+    onDraftChange?.(nextDraft)
+  }
 
   return (
     <ScreenCard
@@ -20,34 +42,47 @@ export function CerScreen({ evidenceTexts, onComplete }: CerScreenProps) {
       title="Build your field report"
     >
       <form
+        data-testid="cer-screen"
         onSubmit={(event) => {
           event.preventDefault()
-          if (claim && reasoning.trim()) onComplete({ claim, reasoning: reasoning.trim() })
+          if (canComplete) onComplete({ ...draft, reasoning: draft.reasoning.trim() })
         }}
       >
         <fieldset className="choice-fieldset">
-          <legend>Claim: Which inherited trait became more common?</legend>
-          <div className="claim-grid">
-            <label className="choice-card">
-              <input
-                checked={claim === 'higher_speed'}
-                name="cer-claim"
-                onChange={() => setClaim('higher_speed')}
-                type="radio"
-              />
-              <span><strong>Higher-speed</strong><small>became more common</small></span>
-            </label>
-            <label className="choice-card">
-              <input
-                checked={claim === 'lower_speed'}
-                name="cer-claim"
-                onChange={() => setClaim('lower_speed')}
-                type="radio"
-              />
-              <span><strong>Lower-speed</strong><small>became more common</small></span>
-            </label>
+          <legend>Claim: What conclusion matches the results from both habitats?</legend>
+          <div className="choice-stack">
+            {claims.map((claim) => (
+              <label
+                className={`choice-card choice-card--reason${draft.claimId === claim.id ? ' is-selected' : ''}`}
+                data-testid={
+                  claim.isSupported
+                    ? 'cer-claim-population-change'
+                    : `cer-claim-${claim.id}`
+                }
+                key={claim.id}
+              >
+                <input
+                  checked={draft.claimId === claim.id}
+                  name="cer-claim"
+                  onChange={() => updateDraft({ ...draft, claimId: claim.id })}
+                  type="radio"
+                  value={claim.id}
+                />
+                <span>{claim.text}</span>
+              </label>
+            ))}
           </div>
         </fieldset>
+
+        {selectedClaim && (
+          <div
+            className={`feedback-box ${selectedClaim.isSupported ? 'feedback-box--correct' : 'feedback-box--retry'}`}
+            role="status"
+          >
+            <strong>{selectedClaim.isSupported ? 'This claim matches your data.' : 'Check this claim against your evidence.'}</strong>
+            <p>{selectedClaim.feedback}</p>
+          </div>
+        )}
 
         <section className="cer-evidence" aria-labelledby="cer-evidence-title">
           <h3 id="cer-evidence-title">Your selected evidence</h3>
@@ -58,25 +93,34 @@ export function CerScreen({ evidenceTexts, onComplete }: CerScreenProps) {
 
         <label className="reasoning-field" htmlFor="cer-reasoning">
           <strong>Reasoning</strong>
-          <span>
-            Explain how inherited variation, limited food, survival and reproduction,
-            and offspring caused the population frequency to change.
-          </span>
+          <span>{CER_REASONING_PROMPT}</span>
           <textarea
+            data-testid="cer-reasoning"
             id="cer-reasoning"
-            onChange={(event) => setReasoning(event.target.value)}
-            placeholder="Because the movement-speed trait was inherited…"
+            onChange={(event) => updateDraft({ ...draft, reasoning: event.target.value })}
+            placeholder="The populations began with inherited variation…"
             rows={6}
-            value={reasoning}
+            value={draft.reasoning}
           />
         </label>
 
-        <div className="cer-reminder">
-          Your response is saved for review. This first version checks completion, not the meaning of free text.
+        <div className="vocabulary-bank" aria-label="Reasoning vocabulary">
+          {CER_REQUIRED_VOCABULARY.map((term) => <span key={term}>{term}</span>)}
         </div>
+        <p className="cer-reminder">{CER_FORMATIVE_NOTE}</p>
+        <p aria-live="polite" className="response-progress">
+          {reasoningLength < MIN_REASONING_LENGTH
+            ? `Add ${MIN_REASONING_LENGTH - reasoningLength} more characters to complete your reasoning.`
+            : 'Your reasoning is long enough to submit.'}
+        </p>
 
-        <button className="primary-button primary-button--full" disabled={!canComplete} type="submit">
-          Complete field report <span aria-hidden="true">→</span>
+        <button
+          className="primary-button primary-button--full"
+          data-testid="primary-action"
+          disabled={!canComplete}
+          type="submit"
+        >
+          Complete the field report <span aria-hidden="true">→</span>
         </button>
       </form>
     </ScreenCard>

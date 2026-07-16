@@ -1,12 +1,18 @@
 import {
-  TRAIT_IDS,
+  MORPH_IDS,
   type GenerationResult,
-  type ScenarioConfig,
+  type HabitatConfig,
+  type MorphCounts,
+  type MorphFrequencies,
+  type MorphId,
+  type MorphPercentages,
+  type PlayerRoundMetrics,
+  type PredationResult,
+  type RandomSource,
+  type RunGenerationResult,
   type SimulationState,
-  type TraitCounts,
-  type TraitFrequencies,
-  type TraitId,
-} from './types'
+} from './types.ts'
+import { createSeededRandom, deriveSeed, validateSeed } from './seededRandom.ts'
 
 const TIE_EPSILON = 1e-12
 
@@ -16,270 +22,441 @@ function assertPositiveInteger(value: number, label: string): void {
   }
 }
 
+function assertNonNegativeInteger(value: number, label: string): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer.`)
+  }
+}
+
 function assertNonEmptyString(value: string, label: string): void {
-  if (value.trim().length === 0) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`${label} must not be empty.`)
   }
 }
 
-function assertValidCounts(counts: TraitCounts, label: string): void {
-  for (const trait of TRAIT_IDS) {
-    const count = counts[trait]
-    if (!Number.isInteger(count) || count < 0) {
-      throw new Error(`${label}.${trait} must be a non-negative integer.`)
-    }
+function assertCounts(counts: MorphCounts, label: string): void {
+  for (const morph of MORPH_IDS) {
+    assertNonNegativeInteger(counts[morph], `${label}.${morph}`)
   }
 }
 
-function countsEqual(left: TraitCounts, right: TraitCounts): boolean {
-  return TRAIT_IDS.every((trait) => left[trait] === right[trait])
+function countsEqual(left: MorphCounts, right: MorphCounts): boolean {
+  return MORPH_IDS.every((morph) => left[morph] === right[morph])
 }
 
-export function totalCounts(counts: TraitCounts): number {
-  return TRAIT_IDS.reduce((total, trait) => total + counts[trait], 0)
-}
-
-export function calculateTraitFrequencies(
-  counts: TraitCounts,
-): TraitFrequencies {
-  assertValidCounts(counts, 'counts')
-  const total = totalCounts(counts)
-
-  if (total === 0) {
-    throw new Error('Trait frequencies require at least one organism.')
-  }
-
+function addCounts(left: MorphCounts, right: MorphCounts): MorphCounts {
   return {
-    higher_speed: counts.higher_speed / total,
-    lower_speed: counts.lower_speed / total,
+    camouflaged: left.camouflaged + right.camouflaged,
+    conspicuous: left.conspicuous + right.conspicuous,
   }
 }
 
-/**
- * Uses Hamilton's largest-remainder method. When remainders are equal, the
- * documented trait order makes the result predictable rather than random.
- */
+function subtractCounts(left: MorphCounts, right: MorphCounts): MorphCounts {
+  return {
+    camouflaged: left.camouflaged - right.camouflaged,
+    conspicuous: left.conspicuous - right.conspicuous,
+  }
+}
+
+export function totalCounts(counts: MorphCounts): number {
+  return MORPH_IDS.reduce((total, morph) => total + counts[morph], 0)
+}
+
+export function calculateMorphFrequencies(
+  counts: MorphCounts,
+): MorphFrequencies {
+  assertCounts(counts, 'counts')
+  const total = totalCounts(counts)
+  if (total === 0) {
+    throw new Error('Morph frequencies require at least one organism.')
+  }
+  return {
+    camouflaged: counts.camouflaged / total,
+    conspicuous: counts.conspicuous / total,
+  }
+}
+
+export function calculateMorphPercentages(
+  counts: MorphCounts,
+): MorphPercentages {
+  const frequencies = calculateMorphFrequencies(counts)
+  return {
+    camouflaged: frequencies.camouflaged * 100,
+    conspicuous: frequencies.conspicuous * 100,
+  }
+}
+
+/** Hamilton allocation with the documented camouflaged-first stable tie order. */
 export function allocateByLargestRemainder(
   totalToAllocate: number,
-  weights: Readonly<Record<TraitId, number>>,
-): TraitCounts {
-  if (!Number.isInteger(totalToAllocate) || totalToAllocate < 0) {
-    throw new Error('Allocation total must be a non-negative integer.')
-  }
-
-  for (const trait of TRAIT_IDS) {
-    if (!Number.isFinite(weights[trait]) || weights[trait] < 0) {
-      throw new Error(`Allocation weight for ${trait} must be finite and non-negative.`)
+  weights: Readonly<Record<MorphId, number>>,
+): MorphCounts {
+  assertNonNegativeInteger(totalToAllocate, 'Allocation total')
+  for (const morph of MORPH_IDS) {
+    const weight = weights[morph]
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new Error(`Allocation weight for ${morph} must be finite and non-negative.`)
     }
   }
-
   if (totalToAllocate === 0) {
-    return { higher_speed: 0, lower_speed: 0 }
+    return { camouflaged: 0, conspicuous: 0 }
   }
 
-  const weightTotal = TRAIT_IDS.reduce(
-    (total, trait) => total + weights[trait],
+  const weightTotal = MORPH_IDS.reduce(
+    (total, morph) => total + weights[morph],
     0,
   )
-
   if (weightTotal <= 0) {
     throw new Error('At least one allocation weight must be greater than zero.')
   }
 
-  const quotas = TRAIT_IDS.map((trait, stableIndex) => {
-    const exact = (totalToAllocate * weights[trait]) / weightTotal
+  const quotas = MORPH_IDS.map((morph, stableIndex) => {
+    const exact = (totalToAllocate * weights[morph]) / weightTotal
     const floor = Math.floor(exact)
-
-    return {
-      trait,
-      stableIndex,
-      floor,
-      remainder: exact - floor,
-    }
+    return { morph, stableIndex, floor, remainder: exact - floor }
   })
-
-  const allocated: Record<TraitId, number> = {
-    higher_speed: quotas[0].floor,
-    lower_speed: quotas[1].floor,
+  const allocated: Record<MorphId, number> = {
+    camouflaged: quotas[0].floor,
+    conspicuous: quotas[1].floor,
   }
-  const floorTotal = quotas.reduce((total, quota) => total + quota.floor, 0)
-  const remaining = totalToAllocate - floorTotal
+  const remaining =
+    totalToAllocate - quotas.reduce((total, quota) => total + quota.floor, 0)
   const ranked = [...quotas].sort((left, right) => {
-    const remainderDifference = right.remainder - left.remainder
-    if (Math.abs(remainderDifference) > TIE_EPSILON) {
-      return remainderDifference
-    }
-    return left.stableIndex - right.stableIndex
+    const difference = right.remainder - left.remainder
+    return Math.abs(difference) > TIE_EPSILON
+      ? difference
+      : left.stableIndex - right.stableIndex
   })
-
   for (let index = 0; index < remaining; index += 1) {
-    const trait = ranked[index % ranked.length].trait
-    allocated[trait] += 1
+    allocated[ranked[index % ranked.length].morph] += 1
   }
-
   return { ...allocated }
 }
 
-export function validateScenarioConfig(scenario: ScenarioConfig): void {
-  assertNonEmptyString(scenario.id, 'scenario.id')
-  assertPositiveInteger(scenario.populationSize, 'scenario.populationSize')
-  assertPositiveInteger(scenario.generationCount, 'scenario.generationCount')
-  assertPositiveInteger(scenario.feedingSlots, 'scenario.feedingSlots')
+export function validateHabitatConfig(habitat: HabitatConfig): void {
+  if (!MORPH_IDS.every((morph) => morph in habitat.initialCounts)) {
+    throw new Error('habitat.initialCounts must define every morph.')
+  }
+  assertNonEmptyString(habitat.id, 'habitat.id')
+  assertPositiveInteger(habitat.populationSize, 'habitat.populationSize')
+  assertPositiveInteger(habitat.generationCount, 'habitat.generationCount')
+  assertPositiveInteger(habitat.predationSlots, 'habitat.predationSlots')
+  assertNonNegativeInteger(
+    habitat.minSurvivorsPerMorph,
+    'habitat.minSurvivorsPerMorph',
+  )
+  assertNonNegativeInteger(
+    habitat.minOffspringPerMorph,
+    'habitat.minOffspringPerMorph',
+  )
+  assertPositiveInteger(
+    habitat.maxOffspringPerMorph,
+    'habitat.maxOffspringPerMorph',
+  )
+  assertPositiveInteger(
+    habitat.pointsPerManualCapture,
+    'habitat.pointsPerManualCapture',
+  )
+  assertCounts(habitat.initialCounts, 'habitat.initialCounts')
 
-  if (scenario.feedingSlots > scenario.populationSize) {
-    throw new Error('scenario.feedingSlots cannot exceed scenario.populationSize.')
+  if (totalCounts(habitat.initialCounts) !== habitat.populationSize) {
+    throw new Error('habitat.initialCounts must total habitat.populationSize.')
+  }
+  if (
+    habitat.predationSlots >
+    habitat.populationSize - MORPH_IDS.length * habitat.minSurvivorsPerMorph
+  ) {
+    throw new Error('habitat.predationSlots cannot violate the survivor floor.')
+  }
+  if (
+    habitat.minOffspringPerMorph * MORPH_IDS.length > habitat.populationSize ||
+    habitat.maxOffspringPerMorph * MORPH_IDS.length < habitat.populationSize ||
+    habitat.minOffspringPerMorph > habitat.maxOffspringPerMorph
+  ) {
+    throw new Error('Habitat offspring bounds cannot contain the population.')
   }
 
-  assertValidCounts(scenario.initialCounts, 'scenario.initialCounts')
-  if (totalCounts(scenario.initialCounts) !== scenario.populationSize) {
-    throw new Error('scenario.initialCounts must total scenario.populationSize.')
-  }
-
-  for (const trait of TRAIT_IDS) {
-    const fitnessWeight = scenario.fitnessWeights[trait]
-    if (!Number.isFinite(fitnessWeight) || fitnessWeight <= 0) {
-      throw new Error(
-        `scenario.fitnessWeights.${trait} must be finite and greater than zero.`,
-      )
+  for (const morph of MORPH_IDS) {
+    if (habitat.initialCounts[morph] < habitat.minSurvivorsPerMorph) {
+      throw new Error(`habitat.initialCounts.${morph} is below the survivor floor.`)
     }
-    assertNonEmptyString(
-      scenario.traitLabels[trait],
-      `scenario.traitLabels.${trait}`,
-    )
+    const weight = habitat.visibilityWeights[morph]
+    if (!Number.isFinite(weight) || weight <= 0) {
+      throw new Error(`habitat.visibilityWeights.${morph} must be positive.`)
+    }
+    assertNonEmptyString(habitat.morphLabels[morph], `habitat.morphLabels.${morph}`)
   }
 
-  for (const [key, value] of Object.entries(scenario.copy)) {
-    assertNonEmptyString(value, `scenario.copy.${key}`)
+  for (const mode of ['standard', 'extended'] as const) {
+    const timing = habitat.timing[mode]
+    assertPositiveInteger(timing.durationMs, `habitat.timing.${mode}.durationMs`)
+    if (!Number.isFinite(timing.movementScale) || timing.movementScale <= 0) {
+      throw new Error(`habitat.timing.${mode}.movementScale must be positive.`)
+    }
+    if (!Number.isFinite(timing.hitAreaScale) || timing.hitAreaScale <= 0) {
+      throw new Error(`habitat.timing.${mode}.hitAreaScale must be positive.`)
+    }
   }
+  for (const [key, value] of Object.entries(habitat.copy)) {
+    assertNonEmptyString(value, `habitat.copy.${key}`)
+  }
+}
+
+export function validatePlayerRoundMetrics(
+  metrics: PlayerRoundMetrics,
+  startingCounts: MorphCounts,
+  habitat: HabitatConfig,
+): void {
+  validateSeed(metrics.seed)
+  assertCounts(metrics.manualCatches, 'metrics.manualCatches')
+  assertNonNegativeInteger(metrics.misses, 'metrics.misses')
+  assertNonNegativeInteger(metrics.protectedEscapes, 'metrics.protectedEscapes')
+  if (!Number.isFinite(metrics.elapsedMs) || metrics.elapsedMs < 0) {
+    throw new Error('metrics.elapsedMs must be finite and non-negative.')
+  }
+  if (metrics.timingMode !== 'standard' && metrics.timingMode !== 'extended') {
+    throw new Error('metrics.timingMode is invalid.')
+  }
+  if (metrics.inputMode !== 'interactive' && metrics.inputMode !== 'observation') {
+    throw new Error('metrics.inputMode is invalid.')
+  }
+  if (typeof metrics.fallbackUsed !== 'boolean') {
+    throw new Error('metrics.fallbackUsed must be a boolean.')
+  }
+  if (metrics.inputMode === 'observation' && totalCounts(metrics.manualCatches) > 0) {
+    throw new Error('Observation rounds cannot contain manual catches.')
+  }
+  if (totalCounts(metrics.manualCatches) > habitat.predationSlots) {
+    throw new Error('Manual catches cannot exceed the predation slots.')
+  }
+  for (const morph of MORPH_IDS) {
+    if (
+      metrics.manualCatches[morph] >
+      startingCounts[morph] - habitat.minSurvivorsPerMorph
+    ) {
+      throw new Error(`Manual catches would violate the ${morph} parent floor.`)
+    }
+  }
+}
+
+/**
+ * Completes unfilled predation slots with abundance multiplied by visibility.
+ * Each draw removes one individual, so selection is weighted without replacement.
+ */
+export function resolvePredation(
+  state: SimulationState,
+  metrics: PlayerRoundMetrics,
+  habitat: HabitatConfig,
+  rng: RandomSource,
+): PredationResult {
+  validateHabitatConfig(habitat)
+  validateSimulationState(state, habitat)
+  validatePlayerRoundMetrics(metrics, state.counts, habitat)
+
+  const manualCatches: MorphCounts = { ...metrics.manualCatches }
+  const afterManual = subtractCounts(state.counts, manualCatches)
+  const automatic: Record<MorphId, number> = {
+    camouflaged: 0,
+    conspicuous: 0,
+  }
+  const working: Record<MorphId, number> = { ...afterManual }
+  const remainingSlots = habitat.predationSlots - totalCounts(manualCatches)
+
+  for (let draw = 0; draw < remainingSlots; draw += 1) {
+    const weightedEligible: Record<MorphId, number> = {
+      camouflaged:
+        Math.max(working.camouflaged - habitat.minSurvivorsPerMorph, 0) *
+        habitat.visibilityWeights.camouflaged,
+      conspicuous:
+        Math.max(working.conspicuous - habitat.minSurvivorsPerMorph, 0) *
+        habitat.visibilityWeights.conspicuous,
+    }
+    const weightTotal = weightedEligible.camouflaged + weightedEligible.conspicuous
+    if (weightTotal <= 0) {
+      throw new Error('Automatic predation cannot fill the configured slots.')
+    }
+
+    const randomValue = rng()
+    if (!Number.isFinite(randomValue) || randomValue < 0 || randomValue >= 1) {
+      throw new Error('Random source must return a finite value from 0 up to 1.')
+    }
+    const threshold = randomValue * weightTotal
+    const selected: MorphId =
+      threshold < weightedEligible.camouflaged && weightedEligible.camouflaged > 0
+        ? 'camouflaged'
+        : 'conspicuous'
+    working[selected] -= 1
+    automatic[selected] += 1
+  }
+
+  const automaticCatches: MorphCounts = { ...automatic }
+  const survivorCounts: MorphCounts = { ...working }
+  return { manualCatches, automaticCatches, survivorCounts }
+}
+
+export function produceOffspring(
+  survivors: MorphCounts,
+  habitat: HabitatConfig,
+): MorphCounts {
+  validateHabitatConfig(habitat)
+  assertCounts(survivors, 'survivors')
+  if (totalCounts(survivors) !== habitat.populationSize - habitat.predationSlots) {
+    throw new Error('Survivors must equal population size minus predation slots.')
+  }
+  for (const morph of MORPH_IDS) {
+    if (survivors[morph] < habitat.minSurvivorsPerMorph) {
+      throw new Error(`Survivors violate the ${morph} parent floor.`)
+    }
+  }
+
+  const proportional = allocateByLargestRemainder(
+    habitat.populationSize,
+    survivors,
+  )
+  const camouflaged = Math.min(
+    habitat.maxOffspringPerMorph,
+    Math.max(habitat.minOffspringPerMorph, proportional.camouflaged),
+  )
+  const offspring: MorphCounts = {
+    camouflaged,
+    conspicuous: habitat.populationSize - camouflaged,
+  }
+  for (const morph of MORPH_IDS) {
+    if (
+      offspring[morph] < habitat.minOffspringPerMorph ||
+      offspring[morph] > habitat.maxOffspringPerMorph
+    ) {
+      throw new Error('Offspring allocation violates configured morph bounds.')
+    }
+  }
+  return offspring
 }
 
 function validateGenerationResult(
   result: GenerationResult,
   expectedGeneration: number,
-  expectedStartingCounts: TraitCounts,
-  scenario: ScenarioConfig,
+  expectedStartingCounts: MorphCounts,
+  habitat: HabitatConfig,
 ): void {
-  if (result.generation !== expectedGeneration) {
-    throw new Error('Simulation history generations must be sequential.')
+  if (result.habitatId !== habitat.id || result.generation !== expectedGeneration) {
+    throw new Error('Simulation history habitat or generation is invalid.')
   }
-
-  assertValidCounts(result.startingCounts, 'history.startingCounts')
-  assertValidCounts(result.survivorCounts, 'history.survivorCounts')
-  assertValidCounts(result.offspringCounts, 'history.offspringCounts')
-  assertValidCounts(result.endingCounts, 'history.endingCounts')
-
+  for (const [label, counts] of Object.entries({
+    startingCounts: result.startingCounts,
+    manualCatches: result.manualCatches,
+    automaticCatches: result.automaticCatches,
+    survivorCounts: result.survivorCounts,
+    offspringCounts: result.offspringCounts,
+    endingCounts: result.endingCounts,
+  })) {
+    assertCounts(counts, `history.${label}`)
+  }
   if (!countsEqual(result.startingCounts, expectedStartingCounts)) {
     throw new Error('A history entry does not start with the previous population.')
   }
-  if (totalCounts(result.startingCounts) !== scenario.populationSize) {
-    throw new Error('A history starting population has the wrong size.')
+  const totalCatches = addCounts(result.manualCatches, result.automaticCatches)
+  if (totalCounts(totalCatches) !== habitat.predationSlots) {
+    throw new Error('A history entry must contain exactly the configured predation events.')
   }
-  if (totalCounts(result.survivorCounts) !== scenario.feedingSlots) {
-    throw new Error('A history survivor population has the wrong size.')
+  if (!countsEqual(subtractCounts(result.startingCounts, totalCatches), result.survivorCounts)) {
+    throw new Error('History survivor counts do not match its catches.')
   }
-  if (totalCounts(result.offspringCounts) !== scenario.populationSize) {
-    throw new Error('A history offspring population has the wrong size.')
+  if (totalCounts(result.survivorCounts) !== habitat.populationSize - habitat.predationSlots) {
+    throw new Error('A history entry has the wrong number of survivors.')
   }
-  if (!countsEqual(result.offspringCounts, result.endingCounts)) {
-    throw new Error('A history ending population must equal its offspring population.')
+  if (
+    totalCounts(result.endingCounts) !== habitat.populationSize ||
+    !countsEqual(result.offspringCounts, result.endingCounts)
+  ) {
+    throw new Error('History offspring must form the complete ending population.')
+  }
+  if (result.predatorPoints !== totalCounts(result.manualCatches) * habitat.pointsPerManualCapture) {
+    throw new Error('History predator points do not match manual catches.')
+  }
+  for (const morph of MORPH_IDS) {
+    if (result.survivorCounts[morph] < habitat.minSurvivorsPerMorph) {
+      throw new Error('A history entry violates the survivor floor.')
+    }
   }
 }
 
 export function validateSimulationState(
   state: SimulationState,
-  scenario: ScenarioConfig,
+  habitat: HabitatConfig,
 ): void {
-  if (state.scenarioId !== scenario.id) {
-    throw new Error('Simulation state and scenario IDs do not match.')
+  validateHabitatConfig(habitat)
+  if (state.habitatId !== habitat.id) {
+    throw new Error('Simulation state and habitat IDs do not match.')
   }
   if (
     !Number.isInteger(state.generation) ||
     state.generation < 0 ||
-    state.generation > scenario.generationCount
+    state.generation > habitat.generationCount ||
+    state.history.length !== state.generation
   ) {
-    throw new Error('Simulation generation is outside the scenario range.')
+    throw new Error('Simulation generation or history length is invalid.')
   }
-  if (state.history.length !== state.generation) {
-    throw new Error('Simulation history length must match the current generation.')
-  }
-
-  assertValidCounts(state.counts, 'state.counts')
-  if (totalCounts(state.counts) !== scenario.populationSize) {
-    throw new Error('Simulation state counts must total scenario.populationSize.')
+  assertCounts(state.counts, 'state.counts')
+  if (totalCounts(state.counts) !== habitat.populationSize) {
+    throw new Error('Simulation state counts must total the habitat population.')
   }
 
-  let expectedStartingCounts = scenario.initialCounts
+  let expectedCounts = habitat.initialCounts
   state.history.forEach((result, index) => {
-    validateGenerationResult(
-      result,
-      index + 1,
-      expectedStartingCounts,
-      scenario,
-    )
-    expectedStartingCounts = result.endingCounts
+    validateGenerationResult(result, index + 1, expectedCounts, habitat)
+    expectedCounts = result.endingCounts
   })
-
-  if (!countsEqual(state.counts, expectedStartingCounts)) {
-    throw new Error('Simulation state counts do not match the latest history entry.')
+  if (!countsEqual(state.counts, expectedCounts)) {
+    throw new Error('Simulation counts do not match the latest history entry.')
   }
 }
 
 export function runGeneration(
   state: SimulationState,
-  scenario: ScenarioConfig,
-): SimulationState {
-  validateScenarioConfig(scenario)
-  validateSimulationState(state, scenario)
-
-  if (state.generation >= scenario.generationCount) {
+  metrics: PlayerRoundMetrics,
+  habitat: HabitatConfig,
+): RunGenerationResult {
+  validateSimulationState(state, habitat)
+  if (state.generation >= habitat.generationCount) {
     throw new Error('All configured generations have already been run.')
   }
 
-  const startingCounts: TraitCounts = { ...state.counts }
-  const weightedSuccess: Record<TraitId, number> = {
-    higher_speed:
-      startingCounts.higher_speed * scenario.fitnessWeights.higher_speed,
-    lower_speed:
-      startingCounts.lower_speed * scenario.fitnessWeights.lower_speed,
-  }
-  const survivorCounts = allocateByLargestRemainder(
-    scenario.feedingSlots,
-    weightedSuccess,
+  const rng = createSeededRandom(
+    deriveSeed(metrics.seed, habitat.id, state.generation + 1, 'automatic-predation'),
   )
-
-  // The survivors are parents. Their offspring fully replace the population.
-  const offspringCounts = allocateByLargestRemainder(
-    scenario.populationSize,
-    survivorCounts,
-  )
-  const endingCounts: TraitCounts = { ...offspringCounts }
+  const predation = resolvePredation(state, metrics, habitat, rng)
+  const offspringCounts = produceOffspring(predation.survivorCounts, habitat)
+  const startingCounts: MorphCounts = { ...state.counts }
+  const endingCounts: MorphCounts = { ...offspringCounts }
   const result: GenerationResult = {
+    habitatId: habitat.id,
     generation: state.generation + 1,
+    seed: metrics.seed,
     startingCounts,
-    survivorCounts: { ...survivorCounts },
+    manualCatches: { ...predation.manualCatches },
+    automaticCatches: { ...predation.automaticCatches },
+    protectedEscapes: metrics.protectedEscapes,
+    survivorCounts: { ...predation.survivorCounts },
     offspringCounts: { ...offspringCounts },
     endingCounts,
-    startingFrequencies: calculateTraitFrequencies(startingCounts),
-    endingFrequencies: calculateTraitFrequencies(endingCounts),
+    startingFrequencies: calculateMorphFrequencies(startingCounts),
+    endingFrequencies: calculateMorphFrequencies(endingCounts),
+    startingPercentages: calculateMorphPercentages(startingCounts),
+    endingPercentages: calculateMorphPercentages(endingCounts),
+    misses: metrics.misses,
+    elapsedMs: metrics.elapsedMs,
+    timingMode: metrics.timingMode,
+    inputMode: metrics.inputMode,
+    fallbackUsed: metrics.fallbackUsed,
+    predatorPoints:
+      totalCounts(predation.manualCatches) * habitat.pointsPerManualCapture,
   }
-
-  return {
-    scenarioId: state.scenarioId,
+  const nextState: SimulationState = {
+    habitatId: habitat.id,
     generation: result.generation,
-    counts: { ...endingCounts },
+    counts: endingCounts,
     history: [...state.history, result],
   }
-}
-
-export function runAllGenerations(
-  initialState: SimulationState,
-  scenario: ScenarioConfig,
-): SimulationState {
-  let nextState = initialState
-
-  while (nextState.generation < scenario.generationCount) {
-    nextState = runGeneration(nextState, scenario)
-  }
-
-  return nextState
+  validateSimulationState(nextState, habitat)
+  return { nextState, result }
 }

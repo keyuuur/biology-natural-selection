@@ -1,7 +1,17 @@
-import type { TraitGraphPoint } from '../simulation/index.ts'
+import { useId } from 'react'
+import type { HabitatId } from '../simulation/index.ts'
+
+export type PopulationGraphPoint = {
+  generation: number
+  counts: Readonly<{ camouflaged: number; conspicuous: number }>
+  percentages: Readonly<{ camouflaged: number; conspicuous: number }>
+}
 
 type PopulationGraphProps = {
-  points: readonly TraitGraphPoint[]
+  habitatId?: HabitatId
+  title: string
+  organismLabel: string
+  points: readonly PopulationGraphPoint[]
   selectedGenerations?: ReadonlySet<number>
   onToggleGeneration?: (generation: number) => void
   selectionHint?: string
@@ -13,38 +23,61 @@ const PADDING = { left: 58, right: 24, top: 24, bottom: 42 }
 const PLOT_WIDTH = WIDTH - PADDING.left - PADDING.right
 const PLOT_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
 
-function pointCoordinates(generation: number, percentage: number) {
+function pointCoordinates(generation: number, percentage: number, maxGeneration: number) {
   return {
-    x: PADDING.left + (generation / 5) * PLOT_WIDTH,
+    x: PADDING.left + (generation / Math.max(1, maxGeneration)) * PLOT_WIDTH,
     y: PADDING.top + ((100 - percentage) / 100) * PLOT_HEIGHT,
   }
 }
 
-function linePath(points: readonly TraitGraphPoint[], trait: 'higher_speed' | 'lower_speed') {
+function linePath(
+  points: readonly PopulationGraphPoint[],
+  morph: 'camouflaged' | 'conspicuous',
+  maxGeneration: number,
+) {
   return points
     .map((point, index) => {
-      const coordinate = pointCoordinates(point.generation, point.percentages[trait])
+      const coordinate = pointCoordinates(
+        point.generation,
+        point.percentages[morph],
+        maxGeneration,
+      )
       return `${index === 0 ? 'M' : 'L'} ${coordinate.x} ${coordinate.y}`
     })
     .join(' ')
 }
 
+function displayPercent(value: number): string {
+  return Number(value.toFixed(1)).toString()
+}
+
 export function PopulationGraph({
+  habitatId,
+  title,
+  organismLabel,
   points,
   selectedGenerations = new Set<number>(),
   onToggleGeneration,
   selectionHint,
 }: PopulationGraphProps) {
+  const titleId = useId()
+  const descriptionId = useId()
+  const maxGeneration = Math.max(3, ...points.map((point) => point.generation))
+
   return (
-    <section className="graph-card" aria-labelledby="trait-graph-title">
+    <section
+      className="graph-card"
+      aria-labelledby={titleId}
+      data-testid={habitatId ? `population-graph-${habitatId}` : undefined}
+    >
       <div className="graph-card__heading">
         <div>
           <p className="eyebrow">Population evidence</p>
-          <h3 id="trait-graph-title">Inherited trait frequency</h3>
+          <h3 id={titleId}>{title}</h3>
         </div>
         <div className="graph-legend" aria-label="Graph legend">
-          <span><i className="legend-line legend-line--higher" />Higher-speed</span>
-          <span><i className="legend-line legend-line--lower" />Lower-speed</span>
+          <span><i className="legend-line legend-line--camo" />Mottled pattern</span>
+          <span><i className="legend-line legend-line--obvious" />Solid pattern</span>
         </div>
       </div>
 
@@ -53,63 +86,45 @@ export function PopulationGraph({
           className="trait-graph"
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
-          aria-labelledby="trait-graph-title trait-graph-description"
+          aria-labelledby={`${titleId} ${descriptionId}`}
         >
-          <desc id="trait-graph-description">
-            A line graph showing the percentage of higher-speed and lower-speed deer
-            from Generation 0 through the latest completed generation.
+          <desc id={descriptionId}>
+            Line graph showing the percentage of mottled-pattern and solid-pattern {organismLabel}
+            from Generation 0 through Generation {maxGeneration}.
           </desc>
           {[0, 25, 50, 75, 100].map((value) => {
-            const { y } = pointCoordinates(0, value)
+            const { y } = pointCoordinates(0, value, maxGeneration)
             return (
               <g key={value}>
-                <line
-                  className="graph-gridline"
-                  x1={PADDING.left}
-                  x2={WIDTH - PADDING.right}
-                  y1={y}
-                  y2={y}
-                />
+                <line className="graph-gridline" x1={PADDING.left} x2={WIDTH - PADDING.right} y1={y} y2={y} />
                 <text className="graph-axis-label" x={PADDING.left - 12} y={y + 5} textAnchor="end">
                   {value}%
                 </text>
               </g>
             )
           })}
-          {Array.from({ length: 6 }, (_, generation) => {
-            const { x } = pointCoordinates(generation, 0)
+          {Array.from({ length: maxGeneration + 1 }, (_, generation) => {
+            const { x } = pointCoordinates(generation, 0, maxGeneration)
             return (
-              <text
-                className="graph-axis-label"
-                key={generation}
-                x={x}
-                y={HEIGHT - 12}
-                textAnchor="middle"
-              >
+              <text className="graph-axis-label" key={generation} x={x} y={HEIGHT - 12} textAnchor="middle">
                 G{generation}
               </text>
             )
           })}
-          <path className="graph-line graph-line--higher" d={linePath(points, 'higher_speed')} />
-          <path className="graph-line graph-line--lower" d={linePath(points, 'lower_speed')} />
+          <path className="graph-line graph-line--camo" d={linePath(points, 'camouflaged', maxGeneration)} />
+          <path className="graph-line graph-line--obvious" d={linePath(points, 'conspicuous', maxGeneration)} />
           {points.flatMap((point) =>
-            (['higher_speed', 'lower_speed'] as const).map((trait) => {
-              const { x, y } = pointCoordinates(point.generation, point.percentages[trait])
+            (['camouflaged', 'conspicuous'] as const).map((morph) => {
+              const { x, y } = pointCoordinates(point.generation, point.percentages[morph], maxGeneration)
               const selected = selectedGenerations.has(point.generation)
-              const className = `graph-point graph-point--${trait}${selected ? ' graph-point--selected' : ''}`
-              return trait === 'higher_speed' ? (
-                <circle
-                  className={className}
-                  cx={x}
-                  cy={y}
-                  key={`${point.generation}-${trait}`}
-                  r={selected ? 8 : 6}
-                />
+              const className = `graph-point graph-point--${morph}${selected ? ' graph-point--selected' : ''}`
+              return morph === 'camouflaged' ? (
+                <circle className={className} cx={x} cy={y} key={`${point.generation}-${morph}`} r={selected ? 8 : 6} />
               ) : (
                 <rect
                   className={className}
                   height={selected ? 15 : 12}
-                  key={`${point.generation}-${trait}`}
+                  key={`${point.generation}-${morph}`}
                   rx="2"
                   width={selected ? 15 : 12}
                   x={x - (selected ? 7.5 : 6)}
@@ -130,15 +145,13 @@ export function PopulationGraph({
               return (
                 <button
                   aria-pressed={selected}
-                  className="generation-chip"
+                  className={`generation-chip${selected ? ' is-selected' : ''}`}
                   key={point.generation}
                   onClick={() => onToggleGeneration(point.generation)}
                   type="button"
                 >
                   <span>Generation {point.generation}</span>
-                  <strong>
-                    {point.percentages.higher_speed}% / {point.percentages.lower_speed}%
-                  </strong>
+                  <strong>{displayPercent(point.percentages.camouflaged)}% / {displayPercent(point.percentages.conspicuous)}%</strong>
                 </button>
               )
             })}
@@ -147,21 +160,21 @@ export function PopulationGraph({
       )}
 
       <div className="graph-table-scroll">
-        <table>
-          <caption>Trait counts and percentages by generation</caption>
+        <table data-testid={habitatId ? `population-table-${habitatId}` : undefined}>
+          <caption>{organismLabel} counts and percentages by generation</caption>
           <thead>
             <tr>
               <th scope="col">Generation</th>
-              <th scope="col">Higher-speed</th>
-              <th scope="col">Lower-speed</th>
+              <th scope="col">Mottled pattern</th>
+              <th scope="col">Solid pattern</th>
             </tr>
           </thead>
           <tbody>
             {points.map((point) => (
               <tr key={point.generation}>
                 <th scope="row">{point.generation}</th>
-                <td>{point.counts.higher_speed}/20 ({point.percentages.higher_speed}%)</td>
-                <td>{point.counts.lower_speed}/20 ({point.percentages.lower_speed}%)</td>
+                <td>{point.counts.camouflaged}/40 ({displayPercent(point.percentages.camouflaged)}%)</td>
+                <td>{point.counts.conspicuous}/40 ({displayPercent(point.percentages.conspicuous)}%)</td>
               </tr>
             ))}
           </tbody>

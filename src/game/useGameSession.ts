@@ -1,236 +1,184 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useReducer } from 'react'
 import {
-  DEFAULT_SCENARIO,
+  HABITATS,
   createGraphSeries,
-  createInitialState,
   createNaturalSelectionResult,
-  runGeneration,
+  deriveSeed,
+  type CerResponse,
+  type ComparisonEvidenceReference,
+  type HabitatId,
+  type MorphId,
   type NaturalSelectionResult,
-  type PredictedOutcome,
+  type PlayerRoundMetrics,
+  type PopulationEvidenceReference,
   type PredictionResponse,
-  type SimulationState,
-  type TraitId,
+  type SelectedTimingMode,
 } from '../simulation/index.ts'
-import type {
-  CerDraft,
-  GameSession,
-  PreparedGeneration,
-} from './sessionTypes.ts'
+import { createMisconceptionQuestions, type HabitatOutcome } from '../learning/index.ts'
+import { completedChecks, type CerDraft, type GameSession } from './sessionTypes.ts'
+import { createFreshSession, sessionReducer } from './sessionReducer.ts'
 
-const CLIENT_VERSION = '0.1.0'
+const CLIENT_VERSION = '0.2.0'
 
-const TRAIT_NAMES: Record<TraitId, string> = {
-  higher_speed: 'higher-speed',
-  lower_speed: 'lower-speed',
-}
+function querySeed(): number | undefined {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('e2e') !== '1') return undefined
+  const source = params.get('e2eSeed')
+  if (!source) return undefined
+  const numeric = Number(source)
+  if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 0xffff_ffff) return numeric
 
-function createSessionId(): string {
-  if ('randomUUID' in crypto) return crypto.randomUUID()
-  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function createFreshSession(): GameSession {
-  return {
-    sessionId: createSessionId(),
-    startedAt: new Date().toISOString(),
-    stage: 'mission',
-    simulation: createInitialState(DEFAULT_SCENARIO),
-    prediction: { trait: null, reason: '' },
-    misconceptionResponse: null,
-    evidence: { generationIds: [], survivorGeneration: null },
-    cer: { claim: null, reasoning: '' },
-    completedResult: null,
+  // Browser stories use readable seed labels. FNV-1a turns those labels into
+  // stable unsigned seeds without adding a second random-number system.
+  let hash = 0x811c_9dc5
+  for (const character of source) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 0x0100_0193)
   }
+  return hash >>> 0 || 1
 }
 
-function generationEvidence(session: GameSession): string[] {
-  const graphPoints = createGraphSeries(
-    DEFAULT_SCENARIO.initialCounts,
-    session.simulation.history,
-  )
-  const selectedPoints = session.evidence.generationIds
-    .map((generation) => graphPoints.find((point) => point.generation === generation))
-    .filter((point) => point !== undefined)
-    .map(
-      (point) =>
-        `Generation ${point.generation}: ${point.counts.higher_speed}/20 (${point.percentages.higher_speed}%) higher-speed and ${point.counts.lower_speed}/20 (${point.percentages.lower_speed}%) lower-speed.`,
-    )
+function createInitialSession(): GameSession {
+  return createFreshSession(querySeed())
+}
 
-  const survivorResult = session.simulation.history.find(
-    (result) => result.generation === session.evidence.survivorGeneration,
-  )
-  if (survivorResult) {
-    const higherPercent = Math.round(
-      (survivorResult.survivorCounts.higher_speed /
-        survivorResult.startingCounts.higher_speed) *
-        100,
-    )
-    const lowerPercent = Math.round(
-      (survivorResult.survivorCounts.lower_speed /
-        survivorResult.startingCounts.lower_speed) *
-        100,
-    )
-    selectedPoints.push(
-      `Generation ${survivorResult.generation}: ${survivorResult.survivorCounts.higher_speed}/${survivorResult.startingCounts.higher_speed} (${higherPercent}%) higher-speed deer reached enough food, compared with ${survivorResult.survivorCounts.lower_speed}/${survivorResult.startingCounts.lower_speed} (${lowerPercent}%) lower-speed deer.`,
-    )
+function habitatOutcomes(session: GameSession): readonly HabitatOutcome[] {
+  return (['reef_fish', 'bark_moths'] as const).map((habitatId) => ({
+    habitatId,
+    startingCounts: HABITATS[habitatId].initialCounts,
+    endingCounts: session.habitats[habitatId].simulation.counts,
+  }))
+}
+
+function requirePrediction(session: GameSession, habitatId: HabitatId): PredictionResponse {
+  const prediction = session.predictions[habitatId]
+  if (!prediction) throw new Error(`A ${habitatId} prediction is required.`)
+  return prediction
+}
+
+function buildCompletedResult(session: GameSession, cer: CerDraft): NaturalSelectionResult {
+  if (!session.selectedTimingMode) throw new Error('A timing mode is required.')
+  if (!session.evidence.comparison) throw new Error('Comparison evidence is required.')
+  if (!cer.claimId || cer.reasoning.trim().length === 0) {
+    throw new Error('A supported claim and reasoning response are required.')
   }
+  const checks = completedChecks(session)
+  if (checks.length !== 4) throw new Error('All four science checks are required.')
 
-  return selectedPoints
-}
+  const evidence = {
+    population: session.evidence.population,
+    comparison: session.evidence.comparison,
+  }
+  const cerResponse: CerResponse = {
+    claimId: cer.claimId,
+    evidence: [...evidence.population, evidence.comparison],
+    reasoning: cer.reasoning.trim(),
+  }
+  const attempts = session.performance.manualCaptures + session.performance.misses
+  const accuracyPercent = attempts === 0
+    ? 0
+    : Math.round((session.performance.manualCaptures / attempts) * 100)
 
-function claimText(claim: TraitId | null): string {
-  if (!claim) return ''
-  return `In this environment, the ${TRAIT_NAMES[claim]} movement trait became more common.`
-}
-
-export function buildSessionResult(
-  session: GameSession,
-  completionState: 'draft' | 'complete',
-): NaturalSelectionResult {
   return createNaturalSelectionResult({
     sessionId: session.sessionId,
+    seed: session.seed,
     startedAt: session.startedAt,
-    completedAt: completionState === 'complete' ? new Date().toISOString() : null,
-    scenarioId: DEFAULT_SCENARIO.id,
-    prediction: session.prediction,
-    generations: session.simulation.history,
-    misconceptionResponse: session.misconceptionResponse,
-    cer: {
-      claim: claimText(session.cer.claim),
-      evidence: generationEvidence(session),
-      reasoning: session.cer.reasoning,
+    completedAt: new Date().toISOString(),
+    selectedTimingMode: session.selectedTimingMode,
+    predictions: {
+      reef_fish: requirePrediction(session, 'reef_fish'),
+      bark_moths: requirePrediction(session, 'bark_moths'),
     },
-    completionState,
+    habitats: {
+      reef_fish: {
+        habitatId: 'reef_fish',
+        generations: session.habitats.reef_fish.simulation.history,
+      },
+      bark_moths: {
+        habitatId: 'bark_moths',
+        generations: session.habitats.bark_moths.simulation.history,
+      },
+    },
+    misconceptionChecks: checks,
+    evidence,
+    cer: cerResponse,
+    predatorPerformance: {
+      ...session.performance,
+      accuracyPercent,
+    },
+    scienceCompletion: {
+      firstAttemptCorrect: checks.filter((check) => check.firstAttemptCorrect).length,
+      questionCount: checks.length,
+      evidenceComplete: true,
+      cerComplete: true,
+    },
     clientVersion: CLIENT_VERSION,
   })
 }
 
 export function useGameSession() {
-  const [session, setSession] = useState<GameSession>(createFreshSession)
+  const [session, dispatch] = useReducer(sessionReducer, undefined, createInitialSession)
+  const currentHabitat = HABITATS[session.currentHabitatId]
+  const currentSimulation = session.habitats[session.currentHabitatId].simulation
+  const currentGeneration = currentSimulation.generation + 1
+  const roundSeed = deriveSeed(
+    session.seed,
+    session.currentHabitatId,
+    currentGeneration,
+    'biology',
+  )
 
   const graphPoints = useMemo(
-    () =>
-      createGraphSeries(
-        DEFAULT_SCENARIO.initialCounts,
-        session.simulation.history,
-      ),
-    [session.simulation.history],
+    () => ({
+      reef_fish: createGraphSeries(HABITATS.reef_fish, session.habitats.reef_fish.simulation.history),
+      bark_moths: createGraphSeries(HABITATS.bark_moths, session.habitats.bark_moths.simulation.history),
+    }),
+    [session.habitats],
   )
-
-  const enterObserve = useCallback(() => {
-    setSession((current) => ({ ...current, stage: 'observe' }))
-  }, [])
-
-  const enterPrediction = useCallback(() => {
-    setSession((current) => ({ ...current, stage: 'prediction' }))
-  }, [])
-
-  const commitPrediction = useCallback(
-    (trait: PredictedOutcome, reason: string) => {
-      const prediction: PredictionResponse = { trait, reason: reason.trim() }
-      setSession((current) => ({
-        ...current,
-        prediction,
-        stage: 'generations',
-      }))
-    },
-    [],
+  const outcomes = useMemo(() => habitatOutcomes(session), [session])
+  const misconceptionQuestions = useMemo(
+    () => createMisconceptionQuestions(outcomes),
+    [outcomes],
   )
-
-  const prepareGeneration = useCallback((): PreparedGeneration => {
-    const nextState = runGeneration(session.simulation, DEFAULT_SCENARIO)
-    const result = nextState.history.at(-1)
-    if (!result) throw new Error('The generation result was not created.')
-    return { nextState, result }
-  }, [session.simulation])
-
-  const commitGeneration = useCallback((nextState: SimulationState) => {
-    setSession((current) => ({
-      ...current,
-      simulation: nextState,
-      stage:
-        nextState.generation === DEFAULT_SCENARIO.generationCount
-          ? 'misconception'
-          : 'generations',
-    }))
-  }, [])
-
-  const answerMisconception = useCallback(
-    (selectedAnswer: string, isCorrect: boolean) => {
-      setSession((current) => ({
-        ...current,
-        misconceptionResponse: { selectedAnswer, isCorrect },
-      }))
-    },
-    [],
-  )
-
-  const enterEvidence = useCallback(() => {
-    setSession((current) => {
-      if (!current.misconceptionResponse?.isCorrect) return current
-      return { ...current, stage: 'evidence' }
-    })
-  }, [])
-
-  const toggleEvidenceGeneration = useCallback((generation: number) => {
-    setSession((current) => {
-      const selected = new Set(current.evidence.generationIds)
-      if (selected.has(generation)) selected.delete(generation)
-      else selected.add(generation)
-      return {
-        ...current,
-        evidence: {
-          ...current.evidence,
-          generationIds: [...selected].sort((left, right) => left - right),
-        },
-      }
-    })
-  }, [])
-
-  const selectSurvivorGeneration = useCallback((generation: number) => {
-    setSession((current) => ({
-      ...current,
-      evidence: { ...current.evidence, survivorGeneration: generation },
-    }))
-  }, [])
-
-  const enterCer = useCallback(() => {
-    setSession((current) => {
-      const hasRequiredPoints =
-        current.evidence.generationIds.includes(0) &&
-        current.evidence.generationIds.includes(5)
-      if (!hasRequiredPoints || current.evidence.survivorGeneration === null) {
-        return current
-      }
-      return { ...current, stage: 'cer' }
-    })
-  }, [])
-
-  const completeCer = useCallback((cer: CerDraft) => {
-    setSession((current) => {
-      const updated: GameSession = { ...current, cer }
-      const completedResult = buildSessionResult(updated, 'complete')
-      return { ...updated, completedResult, stage: 'results' }
-    })
-  }, [])
-
-  const replay = useCallback(() => setSession(createFreshSession()), [])
 
   return {
     session,
+    currentHabitat,
+    currentSimulation,
+    currentGeneration,
+    roundSeed,
     graphPoints,
-    evidenceTexts: generationEvidence(session),
-    enterObserve,
-    enterPrediction,
-    commitPrediction,
-    prepareGeneration,
-    commitGeneration,
-    answerMisconception,
-    enterEvidence,
-    toggleEvidenceGeneration,
-    selectSurvivorGeneration,
-    enterCer,
-    completeCer,
-    replay,
+    outcomes,
+    misconceptionQuestions,
+    begin: () => dispatch({ type: 'BEGIN' }),
+    selectTiming: (timingMode: SelectedTimingMode) =>
+      dispatch({ type: 'SELECT_TIMING', timingMode }),
+    startPrediction: () => dispatch({ type: 'START_PREDICTION' }),
+    submitPrediction: (outcome: MorphId | 'no_change', reason: string) =>
+      dispatch({
+        type: 'SUBMIT_PREDICTION',
+        habitatId: session.currentHabitatId,
+        prediction: { outcome, reason: reason.trim() },
+      }),
+    completeRound: (metrics: PlayerRoundMetrics) =>
+      dispatch({ type: 'ROUND_COMPLETED', habitatId: session.currentHabitatId, metrics }),
+    continueAfterReview: () => dispatch({ type: 'CONTINUE_AFTER_REVIEW' }),
+    continueAfterHabitat: () => dispatch({ type: 'CONTINUE_AFTER_HABITAT' }),
+    togglePopulationEvidence: (reference: PopulationEvidenceReference) =>
+      dispatch({ type: 'TOGGLE_POPULATION_EVIDENCE', reference }),
+    selectComparisonEvidence: (reference: ComparisonEvidenceReference) =>
+      dispatch({ type: 'SELECT_COMPARISON_EVIDENCE', reference }),
+    enterChecks: () => dispatch({ type: 'ENTER_CHECKS' }),
+    answerCheck: (questionId: string, answerId: string, correct: boolean) =>
+      dispatch({ type: 'ANSWER_CHECK', questionId, answerId, correct }),
+    nextCheck: () => dispatch({ type: 'NEXT_CHECK' }),
+    updateCer: (cer: CerDraft) => dispatch({ type: 'UPDATE_CER', cer }),
+    completeCer: (cer: CerDraft) => {
+      const updated = { ...session, cer }
+      dispatch({ type: 'UPDATE_CER', cer })
+      dispatch({ type: 'COMPLETE', result: buildCompletedResult(updated, cer) })
+    },
+    restore: (restored: GameSession) => dispatch({ type: 'RESTORE', session: restored }),
+    replay: () => dispatch({ type: 'REPLAY', session: createFreshSession() }),
   }
 }

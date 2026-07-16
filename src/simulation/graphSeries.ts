@@ -1,44 +1,52 @@
 import {
   type GenerationResult,
-  type TraitCounts,
-  type TraitGraphPoint,
-} from './types'
-import { calculateTraitFrequencies } from './generationRunner'
+  type HabitatConfig,
+  type HabitatId,
+  type MorphCounts,
+  type PopulationGraphPoint,
+} from './types.ts'
+import {
+  calculateMorphFrequencies,
+  calculateMorphPercentages,
+} from './generationRunner.ts'
 
 export function createGraphPoint(
+  habitatId: HabitatId,
   generation: number,
-  counts: TraitCounts,
-): TraitGraphPoint {
+  counts: MorphCounts,
+): PopulationGraphPoint {
   if (!Number.isInteger(generation) || generation < 0) {
     throw new Error('Graph generation must be a non-negative integer.')
   }
-
-  const frequencies = calculateTraitFrequencies(counts)
-
   return {
+    habitatId,
     generation,
     counts: { ...counts },
-    frequencies,
-    percentages: {
-      higher_speed: frequencies.higher_speed * 100,
-      lower_speed: frequencies.lower_speed * 100,
-    },
+    frequencies: calculateMorphFrequencies(counts),
+    percentages: calculateMorphPercentages(counts),
   }
 }
 
 export function createGraphSeries(
-  initialCounts: TraitCounts,
+  habitat: HabitatConfig,
   generations: readonly GenerationResult[],
-): readonly TraitGraphPoint[] {
-  const points: TraitGraphPoint[] = [createGraphPoint(0, initialCounts)]
-
+): readonly PopulationGraphPoint[] {
+  const points: PopulationGraphPoint[] = [
+    createGraphPoint(habitat.id, 0, habitat.initialCounts),
+  ]
+  let expectedCounts = habitat.initialCounts
   generations.forEach((result, index) => {
-    const expectedGeneration = index + 1
-    if (result.generation !== expectedGeneration) {
-      throw new Error('Graph generations must be sequential and begin at 1.')
+    const generation = index + 1
+    if (
+      result.habitatId !== habitat.id ||
+      result.generation !== generation ||
+      result.startingCounts.camouflaged !== expectedCounts.camouflaged ||
+      result.startingCounts.conspicuous !== expectedCounts.conspicuous
+    ) {
+      throw new Error('Graph history must be sequential for one habitat.')
     }
-    points.push(createGraphPoint(result.generation, result.endingCounts))
+    points.push(createGraphPoint(habitat.id, generation, result.endingCounts))
+    expectedCounts = result.endingCounts
   })
-
   return points
 }

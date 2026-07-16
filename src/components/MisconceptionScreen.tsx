@@ -1,87 +1,131 @@
 import { useState } from 'react'
-import type { TraitGraphPoint } from '../simulation/index.ts'
-import { PopulationGraph } from './PopulationGraph.tsx'
+import type { CheckAttemptDraft } from '../game/sessionTypes.ts'
+import type {
+  FeedbackChoice,
+  MisconceptionQuestionConfig,
+} from '../learning/index.ts'
 import { ScreenCard } from './ScreenCard.tsx'
 
 type MisconceptionScreenProps = {
-  graphPoints: readonly TraitGraphPoint[]
-  recordedResponse: { selectedAnswer: string; isCorrect: boolean } | null
-  onAnswer: (selectedAnswer: string, isCorrect: boolean) => void
+  question: MisconceptionQuestionConfig
+  questionNumber: number
+  recordedAttempt?: CheckAttemptDraft
+  onAnswer: (answerId: string, correct: boolean) => void
   onContinue: () => void
 }
 
-const ANSWERS = [
-  {
-    id: 'individual-change',
-    text: 'Each deer became faster because it needed to reach food.',
-    isCorrect: false,
-  },
-  {
-    id: 'population-selection',
-    text: 'The deer already varied in inherited movement speed. More higher-speed deer reached food and reproduced, so their trait became more common in the population.',
-    isCorrect: true,
-  },
-  {
-    id: 'environment-created-trait',
-    text: 'The distant food created a new higher-speed trait in every deer.',
-    isCorrect: false,
-  },
-] as const
+const TEST_IDS: Readonly<Record<string, string>> = {
+  'environmental-pressure:predation': 'option-environmental-predation',
+  'environmental-pressure:need-created-pattern': 'option-organisms-chose-to-change',
+  'environmental-pressure:fixed-population': 'option-fixed-population-model',
+  'population-change:differential-success': 'option-survivors-reproduced',
+  'population-change:similar-success': 'option-survivors-reproduced',
+  'population-change:individual-choice': 'option-individuals-chose-to-change',
+  'population-change:environment-created-variation': 'option-environment-created-trait',
+  'fitness:survive-and-reproduce': 'option-survive-and-reproduce',
+  'fitness:most-common-at-start': 'option-most-common-at-start',
+  'fitness:survival-only': 'option-survival-only',
+  'changed-environment:fitness-can-switch': 'option-background-dependent',
+  'changed-environment:individuals-change': 'option-individuals-change',
+  'changed-environment:camouflage-always-wins': 'option-one-trait-always-best',
+}
 
-export function MisconceptionScreen({
-  graphPoints,
-  recordedResponse,
+function choiceTestId(questionId: string, choiceId: string) {
+  return TEST_IDS[`${questionId}:${choiceId}`] ?? `option-${choiceId}`
+}
+
+function MisconceptionQuestion({
+  question,
+  questionNumber,
+  recordedAttempt,
   onAnswer,
   onContinue,
 }: MisconceptionScreenProps) {
-  const [selectedId, setSelectedId] = useState(recordedResponse?.selectedAnswer ?? '')
-  const selected = ANSWERS.find((answer) => answer.id === selectedId)
+  const restoredChoiceId = recordedAttempt?.finalAnswerId ?? recordedAttempt?.firstAnswerId ?? ''
+  const [selectedId, setSelectedId] = useState(restoredChoiceId)
+  const [checkedChoice, setCheckedChoice] = useState<FeedbackChoice | null>(() =>
+    recordedAttempt?.finalAnswerId
+      ? question.choices.find((choice) => choice.id === recordedAttempt.finalAnswerId) ?? null
+      : null,
+  )
+
+  const selectedChoice = question.choices.find((choice) => choice.id === selectedId)
+  const correct = checkedChoice?.isCorrect === true
 
   return (
-    <div className="analysis-layout">
-      <ScreenCard eyebrow="Population check" title="What actually changed?">
-        <fieldset className="choice-fieldset misconception-fieldset">
-          <legend>Choose the best explanation from Generation 0 to Generation 5.</legend>
+    <ScreenCard
+      className="misconception-card"
+      eyebrow={`Science check ${questionNumber} of 4`}
+      title="Check your natural selection model"
+    >
+      <div data-testid={`misconception-${questionNumber}`}>
+        <fieldset className="choice-fieldset">
+          <legend>{question.prompt}</legend>
           <div className="choice-stack">
-            {ANSWERS.map((answer) => (
-              <label className="choice-card choice-card--reason" key={answer.id}>
+            {question.choices.map((choice) => (
+              <label
+                className={`choice-card choice-card--reason${selectedId === choice.id ? ' is-selected' : ''}`}
+                data-testid={choiceTestId(question.id, choice.id)}
+                key={choice.id}
+              >
                 <input
-                  checked={selectedId === answer.id}
-                  name="misconception-check"
+                  checked={selectedId === choice.id}
+                  name={`misconception-${question.id}`}
                   onChange={() => {
-                    setSelectedId(answer.id)
-                    onAnswer(answer.id, answer.isCorrect)
+                    setSelectedId(choice.id)
+                    setCheckedChoice(null)
                   }}
                   type="radio"
-                  value={answer.id}
+                  value={choice.id}
                 />
-                <span>{answer.text}</span>
+                <span>{choice.text}</span>
               </label>
             ))}
           </div>
         </fieldset>
 
-        {selected && (
-          <div className={`feedback-box ${selected.isCorrect ? 'feedback-box--correct' : 'feedback-box--retry'}`} role="status">
-            <strong>{selected.isCorrect ? 'Exactly.' : 'Look at who left offspring.'}</strong>
-            <p>
-              {selected.isCorrect
-                ? 'Natural selection changed the population across generations. It did not make an individual deer change its inherited trait.'
-                : 'The population already had different inherited speed traits. The environment favored an existing trait; it did not cause individuals to change because they needed to.'}
-            </p>
+        {checkedChoice && (
+          <div
+            className={`feedback-box ${correct ? 'feedback-box--correct' : 'feedback-box--retry'}`}
+            data-testid="answer-feedback"
+            role={correct ? 'status' : 'alert'}
+          >
+            <strong>{correct ? 'Correct.' : 'Not quite. Try again.'}</strong>
+            <p>{checkedChoice.feedback}</p>
           </div>
         )}
 
-        <button
-          className="primary-button primary-button--full"
-          disabled={!selected?.isCorrect}
-          onClick={onContinue}
-          type="button"
-        >
-          Continue to evidence <span aria-hidden="true">→</span>
-        </button>
-      </ScreenCard>
-      <PopulationGraph points={graphPoints} />
-    </div>
+        {!correct ? (
+          <button
+            className="primary-button primary-button--full"
+            data-testid="primary-action"
+            disabled={!selectedChoice}
+            onClick={() => {
+              if (!selectedChoice) return
+              setCheckedChoice(selectedChoice)
+              onAnswer(selectedChoice.id, selectedChoice.isCorrect)
+            }}
+            type="button"
+          >
+            Check answer
+          </button>
+        ) : (
+          <button
+            className="primary-button primary-button--full"
+            data-testid="primary-action"
+            onClick={onContinue}
+            type="button"
+          >
+            Continue <span aria-hidden="true">→</span>
+          </button>
+        )}
+      </div>
+    </ScreenCard>
   )
+}
+
+export function MisconceptionScreen(props: MisconceptionScreenProps) {
+  // Remounting the focused question resets local selection and feedback only when
+  // the student advances, not when the reducer records an attempt.
+  return <MisconceptionQuestion key={props.question.id} {...props} />
 }

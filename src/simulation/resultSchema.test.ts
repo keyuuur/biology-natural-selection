@@ -1,115 +1,232 @@
 import { describe, expect, it } from 'vitest'
-import { runAllGenerations } from './generationRunner'
+import { BARK_MOTH_HABITAT, REEF_FISH_HABITAT, createInitialState } from './habitats.ts'
+import { runGeneration, totalCounts } from './generationRunner.ts'
 import {
   createNaturalSelectionResult,
   parseNaturalSelectionResult,
   serializeNaturalSelectionResult,
-} from './resultSchema'
-import { DEFAULT_SCENARIO, createInitialState } from './scenario'
-import type { NaturalSelectionResult } from './types'
+} from './resultSchema.ts'
+import type {
+  GenerationResult,
+  HabitatConfig,
+  NaturalSelectionResult,
+  PlayerRoundMetrics,
+} from './types.ts'
 
-function makeCompletedResult(): NaturalSelectionResult {
-  const finalState = runAllGenerations(
-    createInitialState(DEFAULT_SCENARIO),
-    DEFAULT_SCENARIO,
+function completedHabitat(habitat: HabitatConfig): readonly GenerationResult[] {
+  let state = createInitialState(habitat)
+  for (let generation = 1; generation <= 3; generation += 1) {
+    const metrics: PlayerRoundMetrics = {
+      seed: generation * 100 + (habitat.id === 'reef_fish' ? 1 : 2),
+      manualCatches: { camouflaged: 1, conspicuous: 2 },
+      misses: generation,
+      protectedEscapes: 0,
+      elapsedMs: 25_000,
+      timingMode: 'standard',
+      inputMode: 'interactive',
+      fallbackUsed: false,
+    }
+    state = runGeneration(state, metrics, habitat).nextState
+  }
+  return state.history
+}
+
+function makeResult(): NaturalSelectionResult {
+  const reef = completedHabitat(REEF_FISH_HABITAT)
+  const moths = completedHabitat(BARK_MOTH_HABITAT)
+  const generations = [...reef, ...moths]
+  const manualCaptures = generations.reduce(
+    (sum, generation) => sum + totalCounts(generation.manualCatches),
+    0,
   )
-
+  const misses = generations.reduce((sum, generation) => sum + generation.misses, 0)
+  const protectedEscapes = 0
+  const points = generations.reduce(
+    (sum, generation) => sum + generation.predatorPoints,
+    0,
+  )
+  const evidence = {
+    population: [
+      { kind: 'population' as const, habitatId: 'reef_fish' as const, generation: 0 },
+      { kind: 'population' as const, habitatId: 'reef_fish' as const, generation: 3 },
+      { kind: 'population' as const, habitatId: 'bark_moths' as const, generation: 0 },
+      { kind: 'population' as const, habitatId: 'bark_moths' as const, generation: 3 },
+    ],
+    comparison: {
+      kind: 'comparison' as const,
+      habitatId: 'reef_fish' as const,
+      generation: 2,
+    },
+  }
   return createNaturalSelectionResult({
-    sessionId: 'local-session-001',
-    startedAt: '2026-07-09T15:00:00.000Z',
-    completedAt: '2026-07-09T15:12:00.000Z',
-    scenarioId: DEFAULT_SCENARIO.id,
-    prediction: {
-      trait: 'higher_speed',
-      reason: 'Higher-speed deer will reach more of the distant food.',
+    sessionId: 'session-safe-001',
+    seed: 987_654,
+    startedAt: '2026-07-15T14:00:00.000Z',
+    completedAt: '2026-07-15T14:12:00.000Z',
+    selectedTimingMode: 'standard',
+    predictions: {
+      reef_fish: {
+        outcome: 'camouflaged',
+        reason: 'Camouflaged fish may be harder for a predator to catch.',
+      },
+      bark_moths: {
+        outcome: 'camouflaged',
+        reason: 'Camouflaged moths may be harder for a predator to catch.',
+      },
     },
-    generations: finalState.history,
-    misconceptionResponse: {
-      selectedAnswer:
-        'The population changed because higher-speed deer left more offspring.',
-      isCorrect: true,
+    habitats: {
+      reef_fish: { habitatId: 'reef_fish', generations: reef },
+      bark_moths: { habitatId: 'bark_moths', generations: moths },
     },
+    misconceptionChecks: [
+      {
+        questionId: 'pressure',
+        firstAnswerId: 'predation',
+        firstAttemptCorrect: true,
+        finalAnswerId: 'predation',
+        attempts: 1,
+      },
+      {
+        questionId: 'frequency',
+        firstAnswerId: 'need',
+        firstAttemptCorrect: false,
+        finalAnswerId: 'reproduction',
+        attempts: 2,
+      },
+      {
+        questionId: 'fitness',
+        firstAnswerId: 'survive-reproduce',
+        firstAttemptCorrect: true,
+        finalAnswerId: 'survive-reproduce',
+        attempts: 1,
+      },
+      {
+        questionId: 'transfer',
+        firstAnswerId: 'environment-dependent',
+        firstAttemptCorrect: true,
+        finalAnswerId: 'environment-dependent',
+        attempts: 1,
+      },
+    ],
+    evidence,
     cer: {
-      claim: 'The inherited higher-speed trait became more common.',
-      evidence: ['generation-0', 'generation-5', 'generation-3-survivors'],
+      claimId: 'environment-dependent-selection',
+      evidence: [...evidence.population, evidence.comparison],
       reasoning:
-        'More higher-speed deer reached food and reproduced, so their inherited trait appeared in more offspring.',
+        'Inherited variation affected which organisms survived and reproduced, changing the population percentages.',
     },
-    completionState: 'complete',
-    clientVersion: '0.1.0',
+    predatorPerformance: {
+      manualCaptures,
+      misses,
+      protectedEscapes,
+      points,
+      accuracyPercent:
+        (manualCaptures / (manualCaptures + misses)) * 100,
+    },
+    scienceCompletion: {
+      firstAttemptCorrect: 3,
+      questionCount: 4,
+      evidenceComplete: true,
+      cerComplete: true,
+    },
+    clientVersion: '0.2.0',
   })
 }
 
-describe('natural-selection result serialization', () => {
-  it('round-trips the approved result fields', () => {
-    const result = makeCompletedResult()
-    const serialized = serializeNaturalSelectionResult(result)
-
-    expect(parseNaturalSelectionResult(serialized)).toEqual(result)
+describe('NaturalSelectionResult v2', () => {
+  it('round-trips a complete two-habitat identity-free result', () => {
+    const result = makeResult()
+    expect(parseNaturalSelectionResult(serializeNaturalSelectionResult(result)))
+      .toEqual(result)
+    expect(result.habitats.reef_fish.generations).toHaveLength(3)
+    expect(result.habitats.bark_moths.generations).toHaveLength(3)
   })
 
-  it('drops accidental identity fields from serialized output', () => {
-    const resultWithIdentityFields = {
-      ...makeCompletedResult(),
+  it('drops accidental identity fields at every schema boundary', () => {
+    const unsafe = {
+      ...makeResult(),
       studentName: 'Not allowed',
-      studentId: 'Not allowed',
       period: 'Not allowed',
-      cer: {
-        ...makeCompletedResult().cer,
+      predictions: {
+        ...makeResult().predictions,
         studentEmail: 'not-allowed@example.test',
       },
     } as NaturalSelectionResult
-
-    const serialized = serializeNaturalSelectionResult(resultWithIdentityFields)
-    const parsed = JSON.parse(serialized) as Record<string, unknown>
+    const parsed = JSON.parse(
+      serializeNaturalSelectionResult(unsafe),
+    ) as Record<string, unknown>
 
     expect(parsed).not.toHaveProperty('studentName')
-    expect(parsed).not.toHaveProperty('studentId')
     expect(parsed).not.toHaveProperty('period')
-    expect(parsed.cer).not.toHaveProperty('studentEmail')
+    expect(parsed.predictions).not.toHaveProperty('studentEmail')
   })
 
-  it('supports an unfinished local draft', () => {
-    const draft = createNaturalSelectionResult({
-      sessionId: 'local-session-draft',
-      startedAt: '2026-07-09T15:00:00.000Z',
-      completedAt: null,
-      scenarioId: DEFAULT_SCENARIO.id,
-      prediction: { trait: null, reason: '' },
-      generations: [],
-      misconceptionResponse: null,
-      cer: { claim: '', evidence: [], reasoning: '' },
-      completionState: 'draft',
-      clientVersion: '0.1.0',
-    })
-
-    expect(parseNaturalSelectionResult(serializeNaturalSelectionResult(draft))).toEqual(
-      draft,
-    )
-  })
-
-  it('preserves a no-change student prediction', () => {
-    const result = createNaturalSelectionResult({
-      ...makeCompletedResult(),
-      prediction: {
-        trait: 'no_change',
-        reason: 'I think both traits will remain equally common.',
-      },
-    })
-
-    expect(parseNaturalSelectionResult(serializeNaturalSelectionResult(result)).prediction)
-      .toEqual(result.prediction)
-  })
-
-  it('rejects invalid JSON and inconsistent completion timestamps', () => {
-    expect(() => parseNaturalSelectionResult('{not-json')).toThrow(
-      'not valid JSON',
-    )
+  it('rejects mismatched population frequencies and predator aggregates', () => {
+    const result = makeResult()
     expect(() =>
       createNaturalSelectionResult({
-        ...makeCompletedResult(),
-        completedAt: null,
+        ...result,
+        habitats: {
+          ...result.habitats,
+          reef_fish: {
+            ...result.habitats.reef_fish,
+            generations: result.habitats.reef_fish.generations.map(
+              (generation, index) =>
+                index === 0
+                  ? {
+                      ...generation,
+                      endingPercentages: {
+                        ...generation.endingPercentages,
+                        camouflaged: 99,
+                      },
+                    }
+                  : generation,
+            ),
+          },
+        },
       }),
-    ).toThrow('requires completedAt')
+    ).toThrow('does not match')
+    expect(() =>
+      createNaturalSelectionResult({
+        ...result,
+        predatorPerformance: {
+          ...result.predatorPerformance,
+          points: result.predatorPerformance.points + 10,
+        },
+      }),
+    ).toThrow('Predator performance')
+  })
+
+  it('requires the four graph endpoints, one comparison, and four checks', () => {
+    const result = makeResult()
+    expect(() =>
+      createNaturalSelectionResult({
+        ...result,
+        evidence: {
+          ...result.evidence,
+          population: result.evidence.population.slice(1),
+        },
+      }),
+    ).toThrow('Generation 0 and 3')
+    expect(() =>
+      createNaturalSelectionResult({
+        ...result,
+        misconceptionChecks: result.misconceptionChecks.slice(0, 3),
+      }),
+    ).toThrow('four unique')
+  })
+
+  it('rejects invalid JSON, timestamps, and result seeds', () => {
+    const result = makeResult()
+    expect(() => parseNaturalSelectionResult('{broken')).toThrow('not valid JSON')
+    expect(() =>
+      createNaturalSelectionResult({
+        ...result,
+        completedAt: '2026-07-15T13:00:00.000Z',
+      }),
+    ).toThrow('timestamps')
+    expect(() => createNaturalSelectionResult({ ...result, seed: -1 })).toThrow(
+      'unsigned 32-bit',
+    )
   })
 })

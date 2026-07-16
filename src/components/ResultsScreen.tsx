@@ -1,19 +1,30 @@
-import type { NaturalSelectionResult, TraitGraphPoint } from '../simulation/index.ts'
+import { HABITAT_STUDENT_COPY } from '../learning/index.ts'
+import type {
+  HabitatId,
+  NaturalSelectionResult,
+  PopulationGraphPoint,
+} from '../simulation/index.ts'
 import { PopulationGraph } from './PopulationGraph.tsx'
 import { ScreenCard } from './ScreenCard.tsx'
 
 type ResultsScreenProps = {
   result: NaturalSelectionResult
-  graphPoints: readonly TraitGraphPoint[]
-  storageMessage: string
+  graphPoints: Readonly<Record<HabitatId, readonly PopulationGraphPoint[]>>
+  storageMessage?: string
   onReplay: () => void
 }
 
-const PREDICTION_LABELS = {
-  higher_speed: 'Higher-speed would become more common',
-  lower_speed: 'Lower-speed would become more common',
-  no_change: 'The population mix would not change much',
-} as const
+function usedObservationFallback(result: NaturalSelectionResult) {
+  return (['reef_fish', 'bark_moths'] as const).some((habitatId) =>
+    result.habitats[habitatId].generations.some(
+      (generation) => generation.inputMode === 'observation' || generation.fallbackUsed,
+    ),
+  )
+}
+
+function timingLabel(mode: NaturalSelectionResult['selectedTimingMode']) {
+  return mode === 'extended' ? 'Extended timing' : 'Standard timing'
+}
 
 export function ResultsScreen({
   result,
@@ -21,69 +32,92 @@ export function ResultsScreen({
   storageMessage,
   onReplay,
 }: ResultsScreenProps) {
-  const predictedHigher = result.prediction.trait === 'higher_speed'
-  const predictionLabel = result.prediction.trait
-    ? PREDICTION_LABELS[result.prediction.trait]
-    : 'No prediction recorded'
+  const observationFallback = usedObservationFallback(result)
+  const scienceComplete =
+    result.scienceCompletion.evidenceComplete && result.scienceCompletion.cerComplete
 
   return (
-    <div className="results-layout">
+    <div className="results-layout" data-testid="results-screen">
       <ScreenCard
         className="results-card"
         eyebrow="Field study complete"
-        title="The population changed across generations"
+        title="Your evidence tells a population story"
       >
-        <div className="result-hero">
-          <div className="result-badge" aria-hidden="true">✓</div>
-          <div>
-            <strong>Generation 0 → Generation 5</strong>
-            <p>Higher-speed: 50% → 90% · Lower-speed: 50% → 10%</p>
-          </div>
-        </div>
-
-        <div className="result-summary-grid">
-          <section>
-            <p className="eyebrow">Prediction</p>
-            <h3>{predictedHigher ? 'Supported by the data' : 'Not supported by the data'}</h3>
-            <p>{predictionLabel}</p>
-            <small>{result.prediction.reason}</small>
-          </section>
-          <section>
-            <p className="eyebrow">Key idea</p>
-            <h3>Populations evolve</h3>
-            <p>Individual deer kept the same modeled trait throughout their lives.</p>
-          </section>
-        </div>
-
-        <section className="final-cer">
-          <p className="eyebrow">Your CER</p>
-          <h3>{result.cer.claim}</h3>
-          <ul>{result.cer.evidence.map((item) => <li key={item}>{item}</li>)}</ul>
-          <blockquote>{result.cer.reasoning}</blockquote>
+        <section className="result-section" aria-labelledby="predator-performance-title">
+          <p className="eyebrow">Gameplay result</p>
+          <h3 id="predator-performance-title">Predator Performance</h3>
+          <p data-testid="timing-mode-result">{timingLabel(result.selectedTimingMode)}</p>
+          {observationFallback ? (
+            <div className="feedback-box" data-testid="predator-score-unavailable">
+              <strong>Predator score not available in observation mode.</strong>
+              <p>
+                The graphics fallback completed predation automatically. Your science evidence
+                and CER are still complete.
+              </p>
+            </div>
+          ) : (
+            <dl className="metric-grid">
+              <div><dt>Points</dt><dd>{result.predatorPerformance.points}</dd></div>
+              <div><dt>Manual captures</dt><dd>{result.predatorPerformance.manualCaptures}</dd></div>
+              <div><dt>Misses</dt><dd>{result.predatorPerformance.misses}</dd></div>
+              <div><dt>Tap accuracy</dt><dd>{result.predatorPerformance.accuracyPercent}%</dd></div>
+            </dl>
+          )}
+          <p className="model-note">
+            Predator performance is a gameplay record. It is not combined with the science study.
+          </p>
         </section>
 
-        <div className="feedback-box feedback-box--correct">
-          <strong>Natural selection changed the population.</strong>
-          <p>
-            Existing inherited variation affected which deer reached limited food and
-            reproduced. Their offspring inherited those modeled traits, changing the
-            trait frequency across generations.
+        <section className="result-section" aria-labelledby="science-study-title">
+          <p className="eyebrow">Learning result</p>
+          <h3 id="science-study-title">Science Study</h3>
+          <div className="science-completion" data-testid="science-completion">
+            <strong>{scienceComplete ? 'Complete' : 'Incomplete'}</strong>
+            <span>Evidence selected · Four checks corrected · CER submitted</span>
+          </div>
+          <p data-testid="first-attempt-score">
+            First-attempt questions: {result.scienceCompletion.firstAttemptCorrect} of{' '}
+            {result.scienceCompletion.questionCount} correct
           </p>
-        </div>
+          <p>
+            Corrections support learning. The first-attempt count is shown separately and is not a
+            combined grade.
+          </p>
+        </section>
 
-        <p className="storage-status" role="status">{storageMessage}</p>
+        <section className="final-cer" aria-labelledby="saved-cer-title">
+          <p className="eyebrow">Saved field report</p>
+          <h3 id="saved-cer-title">Your CER</h3>
+          <blockquote>{result.cer.reasoning}</blockquote>
+          <p className="model-note">Your free-text reasoning was saved but was not automatically graded.</p>
+        </section>
 
-        <details className="result-json">
-          <summary>Teacher/debug result object</summary>
-          <p>This local record contains no student name, period, email, or other identity field.</p>
-          <pre>{JSON.stringify(result, null, 2)}</pre>
-        </details>
+        {storageMessage && <p className="storage-status" role="status">{storageMessage}</p>}
 
-        <button className="secondary-button secondary-button--full" onClick={onReplay} type="button">
-          Replay with a new session
+        <button
+          className="secondary-button secondary-button--full"
+          data-testid="primary-action"
+          onClick={onReplay}
+          type="button"
+        >
+          Start a new study
         </button>
       </ScreenCard>
-      <PopulationGraph points={graphPoints} />
+
+      <div className="results-graphs">
+        <PopulationGraph
+          habitatId="reef_fish"
+          organismLabel={HABITAT_STUDENT_COPY.reef_fish.organismLabel}
+          points={graphPoints.reef_fish}
+          title="Reef fish population evidence"
+        />
+        <PopulationGraph
+          habitatId="bark_moths"
+          organismLabel={HABITAT_STUDENT_COPY.bark_moths.organismLabel}
+          points={graphPoints.bark_moths}
+          title="Bark moth population evidence"
+        />
+      </div>
     </div>
   )
 }

@@ -1,36 +1,59 @@
 export {
+  HABITAT_IDS,
+  MORPH_IDS,
   RESULT_SCHEMA_VERSION,
-  TRAIT_IDS,
   type CerResponse,
-  type CompletionState,
+  type ComparisonEvidenceReference,
+  type EvidenceReference,
+  type EvidenceSelection,
   type GenerationResult,
-  type MisconceptionResponse,
+  type HabitatConfig,
+  type HabitatCopy,
+  type HabitatExperimentResult,
+  type HabitatId,
+  type MisconceptionCheckResult,
+  type MorphCounts,
+  type MorphFrequencies,
+  type MorphId,
+  type MorphPercentages,
   type NaturalSelectionResult,
+  type PlayerRoundMetrics,
+  type PopulationEvidenceReference,
+  type PopulationGraphPoint,
+  type PredationResult,
   type PredictedOutcome,
   type PredictionResponse,
-  type ResultSaver,
-  type ScenarioConfig,
-  type ScenarioCopy,
+  type PredatorPerformance,
+  type RandomSource,
+  type RoundInputMode,
+  type RunGenerationResult,
+  type ScienceCompletion,
+  type SelectedTimingMode,
   type SimulationState,
-  type TraitCounts,
-  type TraitFrequencies,
-  type TraitGraphPoint,
-  type TraitId,
-  type TraitPercentages,
-} from './types'
-export { DEFAULT_SCENARIO, createInitialState } from './scenario'
+  type TimingConfig,
+} from './types.ts'
+export {
+  BARK_MOTH_HABITAT,
+  HABITATS,
+  REEF_FISH_HABITAT,
+  createInitialState,
+} from './habitats.ts'
+export { createSeededRandom, deriveSeed, validateSeed } from './seededRandom.ts'
 export {
   allocateByLargestRemainder,
-  calculateTraitFrequencies,
-  runAllGenerations,
+  calculateMorphFrequencies,
+  calculateMorphPercentages,
+  produceOffspring,
+  resolvePredation,
   runGeneration,
   totalCounts,
-  validateScenarioConfig,
+  validateHabitatConfig,
+  validatePlayerRoundMetrics,
   validateSimulationState,
-} from './generationRunner'
-export { createGraphPoint, createGraphSeries } from './graphSeries'
+} from './generationRunner.ts'
+export { createGraphPoint, createGraphSeries } from './graphSeries.ts'
 export {
   createNaturalSelectionResult,
   parseNaturalSelectionResult,
   serializeNaturalSelectionResult,
-} from './resultSchema'
+} from './resultSchema.ts'

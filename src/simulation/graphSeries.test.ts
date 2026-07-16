@@ -1,40 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { runAllGenerations } from './generationRunner'
-import { createGraphPoint, createGraphSeries } from './graphSeries'
-import { DEFAULT_SCENARIO, createInitialState } from './scenario'
+import { createGraphPoint, createGraphSeries } from './graphSeries.ts'
+import { createInitialState, REEF_FISH_HABITAT } from './habitats.ts'
+import { runGeneration } from './generationRunner.ts'
+import type { PlayerRoundMetrics } from './types.ts'
 
-describe('trait graph data', () => {
-  it('creates a Generation 0 through Generation 5 percentage series', () => {
-    const finalState = runAllGenerations(
-      createInitialState(DEFAULT_SCENARIO),
-      DEFAULT_SCENARIO,
-    )
-    const points = createGraphSeries(
-      DEFAULT_SCENARIO.initialCounts,
-      finalState.history,
-    )
+const round: PlayerRoundMetrics = {
+  seed: 18,
+  manualCatches: { camouflaged: 0, conspicuous: 0 },
+  misses: 0,
+  protectedEscapes: 0,
+  elapsedMs: 25_000,
+  timingMode: 'standard',
+  inputMode: 'interactive',
+  fallbackUsed: false,
+}
 
-    expect(points).toHaveLength(6)
-    expect(points[0]).toEqual({
+describe('population graph series', () => {
+  it('builds habitat-specific Generation 0 through 3 percentages', () => {
+    let state = createInitialState(REEF_FISH_HABITAT)
+    for (let generation = 1; generation <= 3; generation += 1) {
+      state = runGeneration(
+        state,
+        { ...round, seed: generation },
+        REEF_FISH_HABITAT,
+      ).nextState
+    }
+    const points = createGraphSeries(REEF_FISH_HABITAT, state.history)
+
+    expect(points).toHaveLength(4)
+    expect(points[0]).toMatchObject({
+      habitatId: 'reef_fish',
       generation: 0,
-      counts: { higher_speed: 10, lower_speed: 10 },
-      frequencies: { higher_speed: 0.5, lower_speed: 0.5 },
-      percentages: { higher_speed: 50, lower_speed: 50 },
+      counts: { camouflaged: 20, conspicuous: 20 },
+      percentages: { camouflaged: 50, conspicuous: 50 },
     })
-    expect(points[5]).toEqual({
-      generation: 5,
-      counts: { higher_speed: 18, lower_speed: 2 },
-      frequencies: { higher_speed: 0.9, lower_speed: 0.1 },
-      percentages: { higher_speed: 90, lower_speed: 10 },
-    })
+    expect(points[3].counts.camouflaged + points[3].counts.conspicuous).toBe(40)
   })
 
-  it('rejects empty populations and invalid generation numbers', () => {
+  it('rejects empty populations and malformed history', () => {
     expect(() =>
-      createGraphPoint(0, { higher_speed: 0, lower_speed: 0 }),
+      createGraphPoint('reef_fish', 0, { camouflaged: 0, conspicuous: 0 }),
     ).toThrow('at least one organism')
-    expect(() =>
-      createGraphPoint(-1, { higher_speed: 10, lower_speed: 10 }),
-    ).toThrow('non-negative integer')
+    expect(() => createGraphSeries(REEF_FISH_HABITAT, [
+      {
+        ...runGeneration(createInitialState(REEF_FISH_HABITAT), round, REEF_FISH_HABITAT).result,
+        generation: 2,
+      },
+    ])).toThrow('sequential')
   })
 })

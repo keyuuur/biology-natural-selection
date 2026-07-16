@@ -1,215 +1,54 @@
 # Natural Selection Tech Stack
 
-## Purpose
+## Product boundary
 
-This repo should become a browser-based 3D biology simulation game where students observe trait variation, run survival/reproduction rounds, track trait frequency changes, and explain natural selection with evidence.
+This repository ships the fish-and-moth predator/camouflage study. The earlier deer/Three.js prototype is preserved at Git commit `3737cb7` but is not part of the runtime.
 
-This document is stack and implementation context for Codex. Do not treat it as a finished game design; use it as the baseline for the next planning phase.
+## Runtime
 
-## Stack
+- Vite + React + TypeScript
+- Phaser for the procedural 2D habitat renderer
+- Plain TypeScript for biology, seeded selection, graph adapters, and result validation
+- Versioned browser local storage for anonymous drafts and the last completed result
+- Vitest + Testing Library for unit/component coverage
+- Playwright for touch-oriented browser journeys and screenshot capture
+- Vercel static preview as the release target
 
-- Runtime: `Vite + React + TypeScript`
-- 3D rendering: direct `three` usage, not React Three Fiber for the first version
-- UI layer: React DOM HUD over a Three.js canvas
-- Asset format: `glTF` first for runtime animal models
-- Simulation model: deterministic TypeScript functions first, with seeded randomness only if needed later
-- Data storage in v1: local TypeScript objects plus browser local storage for draft saves if needed
-- Classroom logging: schema-now, fake-saver-first, Apps Script endpoint later
-- Deployment target: GitHub repo plus Vercel after the first playable slice works locally
+Phaser is lazy-loaded after the mission screen. React retains one renderer controller across both habitats and all six rounds. Rendering emits taps and timing events but never calculates population outcomes.
 
-Use direct Three.js because the game needs a visible population of animated animals, while the trait and generation model should stay plain TypeScript and testable without rendering.
-
-## Source Assets
-
-Primary animal pack:
-
-- Source zip: `Ultimate Animated Animals - July 2021-20260708T004836Z-3-001.zip`
-- License: CC0 1.0 Universal
-- Creator credit: Quaternius
-- Runtime format to use first: files under `glTF/`
-- Animals available: `Alpaca`, `Bull`, `Cow`, `Deer`, `Donkey`, `Fox`, `Horse`, `Horse_White`, `Husky`, `ShibaInu`, `Stag`, `Wolf`
-
-Common animations:
-
-- `Idle`
-- `Idle_2`
-- `Walk`
-- `Gallop`
-- `Gallop_Jump`
-- `Eating`
-- hit reaction animations
-- death animation
-- animal-specific attack animations
-
-For this game, start with:
-
-- `Deer` or `Fox` as the focal population
-- `Wolf` as a selection pressure only if predator pressure is part of the first scenario
-
-Represent traits by color tint, scale, speed, or UI labels rather than requiring new custom animal models for the first version.
-
-Do not use OBJ assets for gameplay runtime unless there is a specific debugging reason. OBJ is useful for static inspection but does not preserve the animated workflow as cleanly as glTF.
-
-Do not commit the entire original zip into the repo. Copy only the selected runtime assets into the project, and include the license text or a short attribution note in the repo.
-
-## Expected Project Shape
-
-Use this shape unless the next planning phase chooses a more specific layout:
-
-```text
-/
-  public/
-    assets/
-      animals/
-        deer/
-        fox/
-        wolf/
-      environment/
-  src/
-    app/
-      App.tsx
-      game.css
-    game/
-      createScene.ts
-      gameLoop.ts
-      input.ts
-      camera.ts
-    animals/
-      animalCatalog.ts
-      animalLoader.ts
-      animationController.ts
-      traitVisuals.ts
-      populationVisuals.ts
-    simulation/
-      populationState.ts
-      traitModel.ts
-      generationRunner.ts
-      graphSeries.ts
-    learning/
-      prompts.ts
-      misconceptionChecks.ts
-      cerScaffold.ts
-      resultSchema.ts
-    ui/
-      Hud.tsx
-      TraitLegend.tsx
-      GenerationControls.tsx
-      TraitGraph.tsx
-      ResultsPanel.tsx
-```
-
-## Runtime Responsibilities
-
-Three.js owns:
-
-- renderer, scene, camera, lighting, and resize handling
-- loading glTF animal assets
-- animation mixers and per-animal animation state
-- visual population placement
-- trait visual differences such as tint, scale, or movement speed
+## Responsibility boundary
 
 React owns:
 
-- generation controls
-- trait legend
-- selection-pressure explanation
-- trait-frequency graph
-- student predictions and CER response
-- result and export preview
+- mission, timing, predictions, progression, graphs, evidence, questions, CER, and results;
+- all session and learning state;
+- local persistence, draft recovery, error messages, and the observation fallback;
+- accessibility and responsive layout.
 
-Simulation logic owns:
+Phaser owns:
 
-- individual trait values
-- survival rules
-- reproduction rules
-- generation transitions
-- trait-frequency time series
+- procedural reef, bark, fish, and moth presentation;
+- deterministic placement and movement visuals;
+- touch hit testing and nonviolent capture/escape feedback;
+- canvas lifecycle, resize, pause, and cleanup.
 
-Keep the simulation independent from Three.js. The model should be testable without a canvas.
+The biology engine owns:
 
-## Data Conventions
+- the fixed population and predation constraints;
+- manual-capture validation and automatic weighted selection;
+- survivor and inherited-offspring calculations;
+- immutable generation results and schema validation.
 
-Start with explicit trait and generation data:
+## Performance and safety choices
 
-```ts
-type TraitValue = "fast" | "slow";
+- Initial application JavaScript stays below 400 KB gzip; the larger Phaser chunk loads only when play begins.
+- Procedural artwork avoids external licenses and asset-loading failure.
+- Camouflage uses background relationship, luminance, texture, and pattern—not hue alone.
+- Extended mode enlarges hit targets without enlarging organisms.
+- Reduced motion removes sinusoidal movement and capture/miss effects.
+- Graphics or storage failure never blocks the science pathway.
+- No student identity or network-capable saver exists in this release.
 
-type Organism = {
-  id: string;
-  trait: TraitValue;
-  generation: number;
-  survived: boolean;
-  reproduced: boolean;
-};
+## Deferred
 
-type GenerationResult = {
-  generation: number;
-  startingCounts: Record<TraitValue, number>;
-  survivorCounts: Record<TraitValue, number>;
-  offspringCounts: Record<TraitValue, number>;
-  endingCounts: Record<TraitValue, number>;
-};
-```
-
-Student progress should be recordable as structured data:
-
-```ts
-type NaturalSelectionResult = {
-  sessionId: string;
-  studentName?: string;
-  scenarioId: string;
-  generations: GenerationResult[];
-  prediction: string;
-  claimEvidenceReasoning: {
-    claim: string;
-    evidence: string[];
-    reasoning: string;
-  };
-};
-```
-
-Use simple trait options first. Avoid complex genetics vocabulary until the natural-selection loop is clear.
-
-## First Playable Slice
-
-Build only this first:
-
-- One habitat scene
-- One focal animal population, preferably deer
-- Two visible trait variants, such as fast deer and slow deer
-- One selection pressure, such as limited food location or predator pressure
-- A `Run Generation` button
-- A graph showing trait frequency across generations
-- Animals idle, walk, and eat using imported animations
-- Student predicts which trait will become more common
-- Student writes one CER response after several generations
-
-The first slice is successful when students can see that trait frequency changes because some variants survive and reproduce more often in a specific environment.
-
-## Browser Verification
-
-Every implementation pass should verify:
-
-- App starts locally with Vite
-- Page returns HTTP 200
-- Three.js canvas renders nonblank
-- Focal animal glTF model loads
-- `Idle`, `Walk`, and `Eating` animations can play
-- Trait variants are visually distinguishable
-- `Run Generation` updates population data
-- Trait graph updates after each generation
-- HUD and graph remain readable on laptop and small tablet widths
-- Result object can be inspected without a real Google Sheets endpoint
-
-## Out Of Scope For First Build
-
-- Physical science content
-- Lab safety content
-- Human-body or homeostasis content
-- Full Mendelian genetics simulation
-- Mutation-heavy model
-- Multiplayer
-- Real Google Sheets writes
-- Large open-world exploration
-- Combat-focused predator gameplay
-
+Google Sheets, teacher dashboards, named student data, analytics, mutation/genetics, accounts, leaderboards, combat, offline PWA behavior, a custom domain, and production promotion are outside this release.

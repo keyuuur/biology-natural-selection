@@ -2,34 +2,26 @@ import type { GameStage } from '../game/sessionTypes.ts'
 
 type GameHeaderProps = {
   stage: GameStage
-  generation: number
+  habitatLabel?: string
+  generation?: number
 }
 
-const STAGE_PROGRESS: Record<GameStage, number> = {
-  mission: 1,
-  observe: 2,
-  prediction: 3,
-  generations: 4,
-  misconception: 5,
-  evidence: 6,
-  cer: 7,
-  results: 8,
+const STAGE_META: Record<GameStage, { step: number; label: string }> = {
+  mission: { step: 1, label: 'Mission briefing' },
+  timing: { step: 1, label: 'Choose timing' },
+  habitat_intro: { step: 2, label: 'Observe variation' },
+  prediction: { step: 2, label: 'Make a prediction' },
+  round: { step: 3, label: 'Predator rounds' },
+  generation_review: { step: 3, label: 'Generation evidence' },
+  habitat_summary: { step: 4, label: 'Habitat evidence' },
+  evidence: { step: 5, label: 'Compare evidence' },
+  checks: { step: 6, label: 'Science checks' },
+  cer: { step: 7, label: 'Build your CER' },
+  results: { step: 8, label: 'Study results' },
 }
 
-const STAGE_LABELS: Record<GameStage, string> = {
-  mission: 'Mission briefing',
-  observe: 'Observe variation',
-  prediction: 'Make a prediction',
-  generations: 'Run generations',
-  misconception: 'Explain the change',
-  evidence: 'Select evidence',
-  cer: 'Build your CER',
-  results: 'Field report',
-}
-
-export function GameHeader({ stage, generation }: GameHeaderProps) {
-  const step = STAGE_PROGRESS[stage]
-  const label = STAGE_LABELS[stage]
+export function GameHeader({ stage, habitatLabel, generation }: GameHeaderProps) {
+  const meta = STAGE_META[stage]
 
   return (
     <header className="game-header">
@@ -37,23 +29,25 @@ export function GameHeader({ stage, generation }: GameHeaderProps) {
         <span className="brand-mark" aria-hidden="true">NS</span>
         <div>
           <p className="brand-kicker">Natural Selection Field Lab</p>
-          <h1>Trait Tracker</h1>
+          <h1>Natural Selection: Predator &amp; Camouflage</h1>
         </div>
       </div>
       <div className="mission-progress">
         <div className="mission-progress__copy">
-          <span>{label}</span>
-          {stage === 'generations' && <strong>Generation {generation} of 5</strong>}
+          <span>{meta.label}</span>
+          {stage === 'round' && habitatLabel && generation && (
+            <strong>{habitatLabel} · Generation {generation} of 3</strong>
+          )}
         </div>
         <div
           aria-valuemax={8}
           aria-valuemin={1}
-          aria-valuenow={step}
-          aria-valuetext={`Step ${step} of 8: ${label}`}
+          aria-valuenow={meta.step}
+          aria-valuetext={`Step ${meta.step} of 8: ${meta.label}`}
           className="progress-track"
           role="progressbar"
         >
-          <span style={{ width: `${(step / 8) * 100}%` }} />
+          <span style={{ width: `${(meta.step / 8) * 100}%` }} />
         </div>
       </div>
     </header>

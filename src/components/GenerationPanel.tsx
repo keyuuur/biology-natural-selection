@@ -1,73 +1,83 @@
-import type { GenerationResult, TraitCounts } from '../simulation/index.ts'
+import { HABITAT_STUDENT_COPY, MODEL_SAFEGUARD_DISCLOSURES } from '../learning/index.ts'
+import type { GenerationResult, HabitatConfig } from '../simulation/index.ts'
+import { ScreenCard } from './ScreenCard.tsx'
 
 type GenerationPanelProps = {
-  counts: TraitCounts
-  currentGeneration: number
-  isAnimating: boolean
-  latestResult: GenerationResult | undefined
-  onRun: () => void
+  habitat: HabitatConfig
+  result: GenerationResult
+  onContinue: () => void
 }
 
-function percent(part: number, whole: number) {
-  return Math.round((part / whole) * 100)
+function percent(part: number, whole: number): number {
+  return whole === 0 ? 0 : Math.round((part / whole) * 100)
 }
 
-export function GenerationPanel({
-  counts,
-  currentGeneration,
-  isAnimating,
-  latestResult,
-  onRun,
-}: GenerationPanelProps) {
-  const nextGeneration = currentGeneration + 1
+export function GenerationPanel({ habitat, result, onContinue }: GenerationPanelProps) {
+  const isFinal = result.generation === habitat.generationCount
+  const finalLabel = habitat.id === 'reef_fish' ? 'Review reef evidence' : 'Compare the habitats'
+  const copy = HABITAT_STUDENT_COPY[habitat.id]
 
   return (
-    <section className="field-panel" aria-labelledby="generation-title">
-      <p className="eyebrow">Run the model · Generation {currentGeneration} of 5</p>
-      <h2 id="generation-title">
-        {currentGeneration === 0 ? 'Test your prediction' : 'Record what changed'}
-      </h2>
+    <ScreenCard
+      className="generation-card"
+      eyebrow={`${copy.title} · data checkpoint`}
+      title={`Generation ${result.generation} complete`}
+      footer={
+        <button
+          className="primary-button"
+          data-testid={isFinal ? 'primary-action' : 'continue-generation'}
+          onClick={onContinue}
+          type="button"
+        >
+          {isFinal ? finalLabel : `Continue to Generation ${result.generation + 1}`}
+        </button>
+      }
+    >
+      <div data-generation={result.generation} data-testid="generation-summary">
+        <p className="lead">{copy.generationTransition}</p>
+        <div className="generation-flow" aria-label="Generation population flow">
+          <section>
+            <span>1</span><strong>40 started</strong>
+            <small>{result.startingCounts.camouflaged} mottled · {result.startingCounts.conspicuous} solid</small>
+          </section>
+          <i aria-hidden="true">→</i>
+          <section>
+            <span>2</span><strong>12 caught</strong>
+            <small>
+              {result.manualCatches.camouflaged + result.manualCatches.conspicuous} by you ·{' '}
+              {result.automaticCatches.camouflaged + result.automaticCatches.conspicuous} modeled
+            </small>
+          </section>
+          <i aria-hidden="true">→</i>
+          <section>
+            <span>3</span><strong>28 survived</strong>
+            <small>{result.survivorCounts.camouflaged} mottled · {result.survivorCounts.conspicuous} solid</small>
+          </section>
+          <i aria-hidden="true">→</i>
+          <section>
+            <span>4</span><strong>40 offspring</strong>
+            <small>{result.offspringCounts.camouflaged} mottled · {result.offspringCounts.conspicuous} solid</small>
+          </section>
+        </div>
 
-      <div className="current-population">
-        <p>Current offspring population</p>
-        <div>
-          <span className="count-pill count-pill--higher">» {counts.higher_speed}/20</span>
-          <span className="count-pill count-pill--lower">• {counts.lower_speed}/20</span>
+        <div className="rate-comparison">
+          <section className="morph-stat morph-stat--camo">
+            <p>Mottled-pattern survival rate</p>
+            <strong>{percent(result.survivorCounts.camouflaged, result.startingCounts.camouflaged)}%</strong>
+            <span>{result.survivorCounts.camouflaged} of {result.startingCounts.camouflaged} survived</span>
+          </section>
+          <section className="morph-stat morph-stat--solid">
+            <p>Solid-pattern survival rate</p>
+            <strong>{percent(result.survivorCounts.conspicuous, result.startingCounts.conspicuous)}%</strong>
+            <span>{result.survivorCounts.conspicuous} of {result.startingCounts.conspicuous} survived</span>
+          </section>
+        </div>
+
+        <div className="model-disclosure">
+          <p>{MODEL_SAFEGUARD_DISCLOSURES.automaticCompletion}</p>
+          {result.protectedEscapes > 0 && <p>{MODEL_SAFEGUARD_DISCLOSURES.protectedEscape}</p>}
         </div>
       </div>
-
-      {latestResult ? (
-        <div className="generation-observation" aria-live="polite">
-          <strong>Generation {latestResult.generation} observation</strong>
-          <p>
-            {latestResult.survivorCounts.higher_speed}/{latestResult.startingCounts.higher_speed}
-            {' '}({percent(latestResult.survivorCounts.higher_speed, latestResult.startingCounts.higher_speed)}%)
-            {' '}higher-speed deer and {latestResult.survivorCounts.lower_speed}/{latestResult.startingCounts.lower_speed}
-            {' '}({percent(latestResult.survivorCounts.lower_speed, latestResult.startingCounts.lower_speed)}%)
-            {' '}lower-speed deer reached enough food.
-          </p>
-          <p className="observation-transition">
-            Those 12 parents produced a visibly new generation of 20 offspring.
-          </p>
-        </div>
-      ) : (
-        <div className="generation-observation generation-observation--empty">
-          Press Run Generation to watch which inherited variants reach the 12 food opportunities.
-        </div>
-      )}
-
-      <div className="science-reminder">
-        Traits do not change within a deer’s lifetime. Watch the population proportions.
-      </div>
-
-      <button
-        className="primary-button primary-button--full run-button"
-        disabled={isAnimating || currentGeneration >= 5}
-        onClick={onRun}
-        type="button"
-      >
-        {isAnimating ? 'Generation in progress…' : `Run Generation ${nextGeneration}`}
-      </button>
-    </section>
+    </ScreenCard>
   )
 }

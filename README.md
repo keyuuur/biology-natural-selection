@@ -1,20 +1,16 @@
-# Trait Tracker: Natural Selection Field Study
+# Natural Selection: Predator & Camouflage
 
-An iPad-first, 10–15 minute biology classroom game in which students track an
-inherited movement-speed trait through five deer generations. Students make a
-prediction, run a deterministic model, select graph and survival evidence, and
-finish with a structured CER.
+An iPad-first, 10–15 minute Biology 1 game for ninth-grade students. Students act as predators in reef-fish and bark-moth habitats, then use their own population data to explain natural selection.
 
 ## Learning target
 
-Students use population data to explain this chain:
+Students use evidence to explain this causal chain:
 
-`existing inherited variation → selection pressure → unequal survival and reproduction → inherited offspring traits → population-frequency change`
+`pre-existing inherited variation → environment-dependent predation → unequal survival and reproduction → inherited offspring traits → change in population percentages`
 
-The game explicitly corrects the misconception that an individual animal changes
-its inherited trait because it needs to adapt.
+The activity directly corrects the idea that individuals intentionally change inherited traits because they need to adapt.
 
-## Local setup
+## Run locally
 
 Requirements: Node.js 24+ and npm 11+.
 
@@ -23,44 +19,44 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. No account, API key, database, or Google Sheet
-is needed.
+No account, API key, database, Google Sheet, or downloaded asset pack is required.
 
-## Checks
+## Verification
 
 ```text
 npm run lint
 npm test
 npm run build
+npm run test:e2e
 ```
 
-`npm run check` runs all three checks in sequence.
+The browser suite covers three complete journeys: Standard mode, Extended mode with refresh/resume and correction, and the graphics/storage fallback. Release screenshots are written to `test-results/release-screenshots/`.
 
-## Model rules
+## Classroom model
 
-- Generation 0 starts with 10 higher-speed and 10 lower-speed deer.
-- Only 12 deer reach enough distant food to survive and reproduce.
-- Relative success weights are 1.5 for higher-speed and 1.0 for lower-speed.
-- Largest-remainder allocation keeps every result deterministic.
-- The 12 survivors are parents; their offspring fully replace the population with
-  a new generation of 20.
-- The expected higher/lower sequence is
-  `10/10 → 12/8 → 13/7 → 15/5 → 17/3 → 18/2`.
-- There is no mutation, randomness, trait switching, combat, or predator scenario.
+- Each habitat starts with 20 camouflaged and 20 conspicuous organisms.
+- Each of three generations resolves exactly 12 predation events and leaves 28 survivors.
+- Manual taps are accepted only while at least three parents of each inherited morph remain.
+- If the student catches fewer than 12 organisms, seeded weighted selection completes the round without replacement.
+- Survivors reproduce in proportion to their counts and refill the population to 40.
+- There is no mutation, trait switching, genotype simulation, combat, or claim that nature follows one exact sequence.
 
-## Privacy and saving
+Standard mode provides 25 seconds per generation. Extended mode provides 40 seconds, slower movement, and larger hit targets while keeping the same biology and learning requirements.
 
-Drafts and the last completed field report are stored only in browser local storage.
-The result schema contains no student name, period, email address, or other identity
-field. There are no network submissions or Google Sheets writes.
+## Architecture
 
-## Assets
+- React owns student flow, assessment, graphs, biology results, accessibility, and persistence.
+- Phaser owns procedural 2D habitat drawing, movement, tap detection, and nonviolent feedback only.
+- The biology engine is immutable, seeded, and fully testable without rendering.
+- Phaser is lazy-loaded after the mission screen and one game instance is retained through the session.
+- A DOM observation fallback preserves the complete science pathway if graphics fail.
 
-The app includes only the selected deer glTF and the source license from the
-Quaternius animal pack. See [ATTRIBUTIONS.md](./ATTRIBUTIONS.md).
+All artwork is generated procedurally in the project; there are no external runtime art assets.
 
-## Project context
+## Privacy and deployment
 
-- `TECH_STACK.md` records the durable architecture and classroom constraints.
-- `CODEX_START.md` is a machine-local planning prompt and is intentionally excluded
-  from Git tracking.
+Drafts and the last result are versioned in browser local storage. No names, periods, accounts, analytics, cookies, network submissions, or Google Sheets writes are present.
+
+Vercel preview deployment is supported. Production promotion requires Keyur’s explicit approval.
+
+Durable decisions and current release posture live in `docs/handoffs/PROJECT_CONTEXT.md` and `docs/handoffs/CURRENT_STATUS.md`. `CODEX_START.md` remains a machine-local prompt excluded from Git.

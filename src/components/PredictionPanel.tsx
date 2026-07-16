@@ -1,78 +1,90 @@
 import { useState } from 'react'
-import type { PredictedOutcome } from '../simulation/index.ts'
+import { HABITAT_STUDENT_COPY, MODEL_SAFEGUARD_DISCLOSURES } from '../learning/index.ts'
+import type { HabitatConfig, MorphId } from '../simulation/index.ts'
+import { ScreenCard } from './ScreenCard.tsx'
 
 type PredictionPanelProps = {
-  onSubmit: (trait: PredictedOutcome, reason: string) => void
+  habitat: HabitatConfig
+  onSubmit: (outcome: MorphId | 'no_change', reason: string) => void
 }
 
-const OUTCOMES: Array<{ value: PredictedOutcome; label: string; detail: string }> = [
-  { value: 'higher_speed', label: 'Higher-speed', detail: 'will become more common' },
-  { value: 'lower_speed', label: 'Lower-speed', detail: 'will become more common' },
-  { value: 'no_change', label: 'No major change', detail: 'the mix will stay similar' },
-]
-
-const REASONS = [
-  'Limited, distant food may affect which deer reach enough food and leave offspring.',
-  'Individual deer will choose to change their movement speed when they need food.',
-  'The distant food will create a brand-new inherited trait in every deer.',
-]
-
-export function PredictionPanel({ onSubmit }: PredictionPanelProps) {
-  const [outcome, setOutcome] = useState<PredictedOutcome | null>(null)
+export function PredictionPanel({ habitat, onSubmit }: PredictionPanelProps) {
+  const [outcome, setOutcome] = useState<MorphId | 'no_change' | null>(null)
   const [reason, setReason] = useState('')
-  const canSubmit = outcome !== null && reason.length > 0
+  const copy = HABITAT_STUDENT_COPY[habitat.id]
+  const canSubmit = outcome !== null && reason.trim().length >= 12
 
   return (
-    <form
-      className="field-panel prediction-panel"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (outcome && reason) onSubmit(outcome, reason)
-      }}
+    <div data-testid={`prediction-${habitat.id}`}>
+      <ScreenCard
+      className="prediction-card"
+      eyebrow={`Habitat ${habitat.id === 'reef_fish' ? '1 of 2' : '2 of 2'}`}
+      title={copy.title}
+      footer={
+        <button
+          className="primary-button"
+          data-testid="primary-action"
+          disabled={!canSubmit}
+          onClick={() => outcome && onSubmit(outcome, reason)}
+          type="button"
+        >
+          Lock prediction
+        </button>
+      }
     >
-      <p className="eyebrow">Before Generation 1 · Predict</p>
-      <h2>What will happen after five generations?</h2>
-      <p>Your prediction is a scientific forecast. It is okay if the evidence later does not support it.</p>
-
-      <fieldset className="choice-fieldset">
-        <legend>Choose an outcome</legend>
-        <div className="choice-stack">
-          {OUTCOMES.map((option) => (
-            <label className="choice-card" key={option.value}>
-              <input
-                checked={outcome === option.value}
-                name="predicted-outcome"
-                onChange={() => setOutcome(option.value)}
-                type="radio"
-                value={option.value}
-              />
-              <span><strong>{option.label}</strong><small>{option.detail}</small></span>
-            </label>
-          ))}
+      <div className="prediction-layout">
+        <div className={`variation-preview variation-preview--${habitat.id}`} aria-hidden="true">
+          <div className="preview-organism preview-organism--mottled">Mottled</div>
+          <div className="preview-organism preview-organism--solid">Solid</div>
         </div>
-      </fieldset>
-
-      <fieldset className="choice-fieldset">
-        <legend>Why do you predict that?</legend>
-        <div className="choice-stack choice-stack--compact">
-          {REASONS.map((option) => (
-            <label className="choice-card choice-card--reason" key={option}>
-              <input
-                checked={reason === option}
-                name="prediction-reason"
-                onChange={() => setReason(option)}
-                type="radio"
-                value={option}
-              />
-              <span>{option}</span>
-            </label>
-          ))}
+        <div>
+          <p className="lead">{copy.variationPrompt}</p>
+          <p>{copy.predatorDirections}</p>
+          <fieldset className="choice-fieldset">
+            <legend>Which outcome do you predict?</legend>
+            <div className="choice-stack">
+              <label className={`choice-card${outcome === 'camouflaged' ? ' is-selected' : ''}`}>
+                <input
+                  checked={outcome === 'camouflaged'}
+                  name="prediction"
+                  onChange={() => setOutcome('camouflaged')}
+                  type="radio"
+                />
+                <span>The camouflaged mottled pattern will become a larger percentage.</span>
+              </label>
+              <label className={`choice-card${outcome === 'conspicuous' ? ' is-selected' : ''}`}>
+                <input
+                  checked={outcome === 'conspicuous'}
+                  name="prediction"
+                  onChange={() => setOutcome('conspicuous')}
+                  type="radio"
+                />
+                <span>The conspicuous solid pattern will become a larger percentage.</span>
+              </label>
+              <label className={`choice-card${outcome === 'no_change' ? ' is-selected' : ''}`}>
+                <input
+                  checked={outcome === 'no_change'}
+                  name="prediction"
+                  onChange={() => setOutcome('no_change')}
+                  type="radio"
+                />
+                <span>The percentages will stay about the same.</span>
+              </label>
+            </div>
+          </fieldset>
+          <label className="reasoning-field">
+            <strong>Why do you predict that?</strong>
+            <span>Connect visibility, predation, survival, and reproduction.</span>
+            <textarea
+              onChange={(event) => setReason(event.target.value)}
+              rows={4}
+              value={reason}
+            />
+          </label>
+          <p className="model-note">{MODEL_SAFEGUARD_DISCLOSURES.comparisonFloor}</p>
         </div>
-      </fieldset>
-
-      <button className="primary-button primary-button--full" disabled={!canSubmit} type="submit">
-        Lock prediction <span aria-hidden="true">→</span>
-      </button>
-    </form>
+      </div>
+      </ScreenCard>
+    </div>
   )
 }
