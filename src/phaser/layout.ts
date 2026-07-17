@@ -60,6 +60,7 @@ export type ActorLayout = {
   hitBounds: Bounds
   patrolBounds: Bounds
   direction: -1 | 1
+  profileId: string
   movementProfile: MovementProfile
 }
 
@@ -123,7 +124,7 @@ export function createMovementProfile(
   const random = seededUnit((seed ^ Math.imul(slot + 1, 0x9e3779b1)) >>> 0)
 
   if (habitatId === 'reef_fish') {
-    const baseSpeed = 18 + random() * 18
+    const baseSpeed = 26 + random() * 20
     return {
       kind: 'fish_patrol',
       speedPxPerSecond: baseSpeed * movementScale * (reducedMotion ? 0.5 : 1),
@@ -144,6 +145,7 @@ export function createMovementProfile(
 
 export function createActorLayout(round: LayoutRound, viewport: Viewport): ActorLayout[] {
   assertViewport(viewport)
+  const isReef = round.habitatId === 'reef_fish'
   const hitRegion = createHitRegion(round.habitatId, round.hitAreaScale)
   const visualSize = round.habitatId === 'reef_fish'
     ? { width: 62, height: 30 }
@@ -154,6 +156,9 @@ export function createActorLayout(round: LayoutRound, viewport: Viewport): Actor
   const usableHeight = Math.max(1, viewport.height - EDGE_TOP - EDGE_BOTTOM)
   const cellWidth = usableWidth / COLUMNS
   const cellHeight = usableHeight / ROWS
+  const motionAssignments = isReef
+    ? createBalancedMotionAssignments(shuffled, round)
+    : new Map<string, BalancedMotionAssignment>()
 
   return shuffled.map((organism, slot) => {
     const column = slot % COLUMNS
@@ -162,27 +167,60 @@ export function createActorLayout(round: LayoutRound, viewport: Viewport): Actor
     const cellY = EDGE_TOP + row * cellHeight
     const jitterX = Math.max(0, (cellWidth - hitRegion.width - ACTOR_GAP) / 2)
     const jitterY = Math.max(0, (cellHeight - hitRegion.height - ACTOR_GAP) / 2)
-    const centerX = clamp(
+    const baselineCenterX = clamp(
       cellX + cellWidth / 2 + (random() * 2 - 1) * jitterX,
       hitRegion.width / 2,
       viewport.width - hitRegion.width / 2,
     )
-    const centerY = clamp(
+    const baselineCenterY = clamp(
       cellY + cellHeight / 2 + (random() * 2 - 1) * jitterY,
       hitRegion.height / 2,
       viewport.height - hitRegion.height / 2,
     )
-    const direction: -1 | 1 = seededUnit(round.movementSeed ^ Math.imul(slot + 1, 0x85ebca6b))() > 0.5
-      ? 1
-      : -1
+    const correctedRandom = seededUnit(
+      round.placementSeed ^ Math.imul(slot + 1, 0x27d4eb2d) ^ 0x7f4a7c15,
+    )
+    const correctedCenterX = clamp(
+      cellX + cellWidth / 2 +
+        (correctedRandom() * 2 - 1) * jitterX * 0.9 +
+        (row % 2 === 0 ? -1 : 1) * jitterX * 0.08,
+      hitRegion.width / 2,
+      viewport.width - hitRegion.width / 2,
+    )
+    const correctedCenterY = clamp(
+      cellY + cellHeight / 2 +
+        (correctedRandom() * 2 - 1) * jitterY * 0.88 +
+        (column % 2 === 0 ? -1 : 1) * Math.min(6, jitterY * 0.12),
+      hitRegion.height / 2,
+      viewport.height - hitRegion.height / 2,
+    )
+    const centerX = isReef ? correctedCenterX : baselineCenterX
+    const centerY = isReef ? correctedCenterY : baselineCenterY
+    const motionAssignment = motionAssignments.get(organism.id)
+    const direction: -1 | 1 = motionAssignment?.direction ?? (
+      seededUnit(round.movementSeed ^ Math.imul(slot + 1, 0x85ebca6b))() > 0.5 ? 1 : -1
+    )
     const horizontalInset = Math.max(hitRegion.width / 2, ACTOR_GAP / 2)
     const verticalInset = Math.max(hitRegion.height / 2, ACTOR_GAP / 2)
-    const patrolBounds = boundsFromEdges(
-      cellX + horizontalInset,
-      cellY + verticalInset,
-      cellX + cellWidth - horizontalInset,
-      cellY + cellHeight - verticalInset,
-    )
+    const verticalTop = cellY + verticalInset
+    const verticalBottom = cellY + cellHeight - verticalInset
+    const patrolBounds = isReef
+      ? createWidePatrolBounds(centerX, cellWidth, hitRegion, viewport, verticalTop, verticalBottom)
+      : boundsFromEdges(
+          cellX + horizontalInset,
+          verticalTop,
+          cellX + cellWidth - horizontalInset,
+          verticalBottom,
+        )
+    const movementProfile = isReef && motionAssignment
+      ? motionAssignment.profile
+      : createMovementProfile(
+          slot,
+          round.movementSeed,
+          round.habitatId,
+          round.movementScale,
+          round.reducedMotion,
+        )
 
     return {
       id: organism.id,
@@ -194,15 +232,71 @@ export function createActorLayout(round: LayoutRound, viewport: Viewport): Actor
       hitBounds: centeredBounds(centerX, centerY, hitRegion.width, hitRegion.height),
       patrolBounds,
       direction,
-      movementProfile: createMovementProfile(
-        slot,
-        round.movementSeed,
-        round.habitatId,
-        round.movementScale,
-        round.reducedMotion,
-      ),
+      profileId: motionAssignment?.profileId ?? `slot-${slot}`,
+      movementProfile,
     }
   })
+}
+
+type BalancedMotionAssignment = {
+  profileId: string
+  direction: -1 | 1
+  profile: FishMovementProfile
+}
+
+function createBalancedMotionAssignments(
+  organisms: readonly LayoutOrganism[],
+  round: LayoutRound,
+): Map<string, BalancedMotionAssignment> {
+  const assignments = new Map<string, BalancedMotionAssignment>()
+  const startDirection: -1 | 1 = seededUnit(round.movementSeed ^ 0x85ebca6b)() > 0.5 ? 1 : -1
+  const morphSalts: Record<MorphId, number> = {
+    camouflaged: 0x2c1b3c6d,
+    conspicuous: 0x297a2d39,
+  }
+
+  for (const morphId of ['camouflaged', 'conspicuous'] as const) {
+    const morphOrganisms = deterministicShuffle(
+      organisms.filter((organism) => organism.morphId === morphId),
+      round.movementSeed ^ morphSalts[morphId],
+    )
+    const count = morphOrganisms.length
+    morphOrganisms.forEach((organism, rank) => {
+      const quantile = (rank + 0.5) / Math.max(1, count)
+      const baseSpeed = 26 + 20 * quantile
+      const direction = rank % 2 === 0 ? startDirection : (startDirection === 1 ? -1 : 1)
+      assignments.set(organism.id, {
+        profileId: `balanced-${rank + 1}-of-${count}`,
+        direction,
+        profile: {
+          kind: 'fish_patrol',
+          speedPxPerSecond: baseSpeed * round.movementScale * (round.reducedMotion ? 0.5 : 1),
+          verticalAmplitude: round.reducedMotion
+            ? 0
+            : 3.5 + 3 * Math.cos(quantile * Math.PI * 2),
+          phase: quantile * Math.PI * 2,
+        },
+      })
+    })
+  }
+  return assignments
+}
+
+function createWidePatrolBounds(
+  centerX: number,
+  cellWidth: number,
+  hitRegion: HitRegion,
+  viewport: Viewport,
+  top: number,
+  bottom: number,
+): Bounds {
+  const requestedSpan = clamp(cellWidth * 0.7, 64, 104)
+  const minimumCenter = hitRegion.width / 2
+  const maximumCenter = viewport.width - hitRegion.width / 2
+  const availableSpan = Math.max(0, maximumCenter - minimumCenter)
+  const span = Math.min(requestedSpan, availableSpan)
+  const left = clamp(centerX - span / 2, minimumCenter, maximumCenter - span)
+  return boundsFromEdges(left, top, left + span, bottom)
 }
 
 export function remapActorLayout(

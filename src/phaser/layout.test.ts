@@ -84,8 +84,8 @@ describe('Phaser actor layout', () => {
     expect(repeated).toEqual(first)
     expect(first.kind).toBe('fish_patrol')
     if (first.kind === 'fish_patrol') {
-      expect(first.speedPxPerSecond).toBeGreaterThanOrEqual(18)
-      expect(first.speedPxPerSecond).toBeLessThanOrEqual(36)
+      expect(first.speedPxPerSecond).toBeGreaterThanOrEqual(26)
+      expect(first.speedPxPerSecond).toBeLessThanOrEqual(46)
       expect(first.verticalAmplitude).toBeLessThanOrEqual(7)
     }
   })
@@ -94,13 +94,125 @@ describe('Phaser actor layout', () => {
     const fish = createMovementProfile(2, 777, 'reef_fish', 1, true)
     expect(fish.kind).toBe('fish_patrol')
     if (fish.kind === 'fish_patrol') {
-      expect(fish.speedPxPerSecond).toBeGreaterThanOrEqual(9)
-      expect(fish.speedPxPerSecond).toBeLessThanOrEqual(18)
+      expect(fish.speedPxPerSecond).toBeGreaterThanOrEqual(13)
+      expect(fish.speedPxPerSecond).toBeLessThanOrEqual(23)
       expect(fish.verticalAmplitude).toBe(0)
     }
 
     const moth = createMovementProfile(2, 777, 'bark_moths', 1, true)
     expect(moth.kind).toBe('moth_land_drift')
+  })
+
+  it('uses the approved reef speed, patrol span, and unchanged tap geometry by default', () => {
+    const viewport = { width: 820, height: 1180 }
+    const layout = createActorLayout(round(), viewport)
+    for (const actor of layout) {
+      expect(actor.movementProfile.kind).toBe('fish_patrol')
+      if (actor.movementProfile.kind === 'fish_patrol') {
+        expect(actor.movementProfile.speedPxPerSecond).toBeGreaterThanOrEqual(26)
+        expect(actor.movementProfile.speedPxPerSecond).toBeLessThanOrEqual(46)
+      }
+      expect(actor.patrolBounds.width).toBeCloseTo(71.05, 1)
+      expect(actor.hitBounds.width).toBe(72)
+      expect(actor.hitBounds.height).toBe(48)
+    }
+  })
+
+  it('assigns the same complete 20-profile bank to both morphs in a 20/20 round', () => {
+    const layout = createActorLayout(round(), { width: 1180, height: 820 })
+    const profiles = (morphId: 'camouflaged' | 'conspicuous') => layout
+      .filter((actor) => actor.morphId === morphId)
+      .map((actor) => ({
+        id: actor.profileId,
+        direction: actor.direction,
+        movement: actor.movementProfile,
+      }))
+      .sort((first, second) => first.id.localeCompare(second.id))
+    expect(profiles('camouflaged')).toEqual(profiles('conspicuous'))
+  })
+
+  it('keeps motion mechanically balanced across every allowed population ratio', () => {
+    for (let camouflaged = 4; camouflaged <= 36; camouflaged += 1) {
+      const ratioOrganisms = Array.from({ length: 40 }, (_, index) => ({
+        id: `ratio-${camouflaged}-${index}`,
+        morphId: index < camouflaged ? 'camouflaged' as const : 'conspicuous' as const,
+      }))
+      const layout = createActorLayout(round({
+        organisms: ratioOrganisms,
+      }), { width: 1180, height: 820 })
+      const stats = (morphId: 'camouflaged' | 'conspicuous') => {
+        const actors = layout.filter((actor) => actor.morphId === morphId)
+        const fish = actors.map((actor) => {
+          expect(actor.movementProfile.kind).toBe('fish_patrol')
+          return actor.movementProfile.kind === 'fish_patrol' ? actor.movementProfile : null
+        }).filter((profile): profile is NonNullable<typeof profile> => profile !== null)
+        return {
+          meanSpeed: fish.reduce((sum, profile) => sum + profile.speedPxPerSecond, 0) / fish.length,
+          meanAmplitude: fish.reduce((sum, profile) => sum + profile.verticalAmplitude, 0) / fish.length,
+          directionImbalance: Math.abs(
+            actors.filter(({ direction }) => direction === 1).length -
+            actors.filter(({ direction }) => direction === -1).length,
+          ),
+        }
+      }
+      const camouflage = stats('camouflaged')
+      const conspicuous = stats('conspicuous')
+      expect(camouflage.meanSpeed).toBeCloseTo(conspicuous.meanSpeed, 10)
+      expect(camouflage.meanAmplitude).toBeCloseTo(conspicuous.meanAmplitude, 10)
+      expect(camouflage.directionImbalance).toBe(conspicuous.directionImbalance)
+      expect(camouflage.directionImbalance).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('keeps corrected starting hit regions separate at every supported iPad size', () => {
+    for (const viewport of [
+      { width: 768, height: 1024 },
+      { width: 1024, height: 768 },
+      { width: 820, height: 1180 },
+      { width: 1180, height: 820 },
+    ]) {
+      for (const hitAreaScale of [1, 1.2]) {
+        const layout = createActorLayout(round({ hitAreaScale }), viewport)
+        for (let first = 0; first < layout.length; first += 1) {
+          for (let second = first + 1; second < layout.length; second += 1) {
+            expect(overlaps(layout[first].hitBounds, layout[second].hitBounds)).toBe(false)
+          }
+        }
+      }
+    }
+  })
+
+  it('uses the Extended multiplier and removes bobbing in reduced motion', () => {
+    const standard = createActorLayout(round(), { width: 820, height: 1180 })
+    const extended = createActorLayout(round({
+      movementScale: 0.75,
+      hitAreaScale: 1.2,
+    }), { width: 820, height: 1180 })
+    const reduced = createActorLayout(round({
+      reducedMotion: true,
+    }), { width: 820, height: 1180 })
+    for (const actor of standard) {
+      const extendedActor = extended.find(({ id }) => id === actor.id)!
+      const reducedActor = reduced.find(({ id }) => id === actor.id)!
+      expect(actor.movementProfile.kind).toBe('fish_patrol')
+      expect(extendedActor.movementProfile.kind).toBe('fish_patrol')
+      expect(reducedActor.movementProfile.kind).toBe('fish_patrol')
+      if (
+        actor.movementProfile.kind === 'fish_patrol' &&
+        extendedActor.movementProfile.kind === 'fish_patrol' &&
+        reducedActor.movementProfile.kind === 'fish_patrol'
+      ) {
+        expect(extendedActor.movementProfile.speedPxPerSecond).toBeCloseTo(
+          actor.movementProfile.speedPxPerSecond * 0.75,
+        )
+        expect(reducedActor.movementProfile.speedPxPerSecond).toBeCloseTo(
+          actor.movementProfile.speedPxPerSecond * 0.5,
+        )
+        expect(reducedActor.movementProfile.verticalAmplitude).toBe(0)
+      }
+      expect(extendedActor.hitBounds.width).toBeCloseTo(86.4)
+      expect(extendedActor.hitBounds.height).toBeCloseTo(57.6)
+    }
   })
 
   it('remaps normalized positions inside a rotated viewport without changing IDs', () => {

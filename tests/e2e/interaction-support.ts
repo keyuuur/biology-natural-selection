@@ -1,4 +1,19 @@
 import { expect, type Page, type TestInfo } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
+
+const interactionScreenshotDirectory = path.resolve(
+  process.cwd(),
+  'test-results',
+  'interaction-screenshots',
+)
+
+const stableScreenshotNames: Record<string, string> = {
+  'interaction-active-catches-and-miss-portrait': '01-active-play-portrait.png',
+  'interaction-active-catches-and-miss-landscape': '02-active-play-landscape.png',
+  'interaction-manual-resolving-portrait': '03-resolving-overlay-portrait.png',
+  'interaction-manual-resolving-landscape': '04-resolving-overlay-landscape.png',
+}
 
 export type QaActorTarget = {
   id: string
@@ -8,6 +23,10 @@ export type QaActorTarget = {
   velocity?: { x: number; y: number }
   landed?: boolean
   locked?: boolean
+  profileId: string
+  assignedSpeedPxPerSecond: number
+  patrolSpanPx: number
+  maxContinuousBlockedMs: number
 }
 
 export type InteractionQaSnapshot = {
@@ -145,9 +164,11 @@ export async function clearFocusAndCapture(
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
   })
-  const path = testInfo.outputPath(`${name}.png`)
-  await page.screenshot({ path, fullPage: false })
-  await testInfo.attach(`${name}.png`, { path, contentType: 'image/png' })
+  await mkdir(interactionScreenshotDirectory, { recursive: true })
+  const filename = stableScreenshotNames[name] ?? `${name}.png`
+  const screenshotPath = path.join(interactionScreenshotDirectory, filename)
+  await page.screenshot({ path: screenshotPath, fullPage: false })
+  await testInfo.attach(`${name}.png`, { path: screenshotPath, contentType: 'image/png' })
 }
 
 export function expectOneRenderer(snapshot: InteractionQaSnapshot) {
@@ -159,4 +180,19 @@ export function expectOneRenderer(snapshot: InteractionQaSnapshot) {
   expect(snapshot.controllerListenerCount).toBe(2)
   expect(snapshot.actorCount).toBe(snapshot.actors.length)
   expect(snapshot.duplicateRoundEndCount).toBe(0)
+}
+
+export function expectNoEligibleActorOverlap(snapshot: InteractionQaSnapshot) {
+  const eligible = snapshot.actors.filter(({ locked }) => !locked)
+  for (let first = 0; first < eligible.length; first += 1) {
+    for (let second = first + 1; second < eligible.length; second += 1) {
+      const one = eligible[first]!.hitBounds
+      const two = eligible[second]!.hitBounds
+      const overlaps = one.x < two.x + two.width &&
+        one.x + one.width > two.x &&
+        one.y < two.y + two.height &&
+        one.y + one.height > two.y
+      expect(overlaps, `${eligible[first]!.id} overlaps ${eligible[second]!.id}`).toBe(false)
+    }
+  }
 }

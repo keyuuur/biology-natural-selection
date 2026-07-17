@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
   clearFocusAndCapture,
+  expectNoEligibleActorOverlap,
   expectOneRenderer,
   findBlankCanvasPoint,
   qaSnapshot,
@@ -49,6 +50,11 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await openInteractiveRound(page, { seed: 'touch-manual-success' })
     const initial = await startGenerationByTouch(page)
     expect(initial.actors).toHaveLength(40)
+    expect(Math.min(...initial.actors.map(({ assignedSpeedPxPerSecond }) => assignedSpeedPxPerSecond))).toBeGreaterThanOrEqual(26)
+    expect(Math.max(...initial.actors.map(({ assignedSpeedPxPerSecond }) => assignedSpeedPxPerSecond))).toBeLessThanOrEqual(46)
+    expect(Math.min(...initial.actors.map(({ patrolSpanPx }) => patrolSpanPx))).toBeGreaterThanOrEqual(64)
+    expect(initial.actors.every(({ hitBounds }) => hitBounds.width === 72 && hitBounds.height === 48)).toBe(true)
+    expectNoEligibleActorOverlap(initial)
 
     await tapActors(page, 3)
     const blankPoint = await findBlankCanvasPoint(page)
@@ -58,6 +64,7 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await page.setViewportSize(LANDSCAPE)
     await expect.poll(async () => (await qaSnapshot(page)).pauseReasons).not.toContain('resize')
     await page.waitForTimeout(200)
+    expectNoEligibleActorOverlap(await qaSnapshot(page))
     await clearFocusAndCapture(page, testInfo, 'interaction-active-catches-and-miss-landscape')
     await page.setViewportSize(PORTRAIT)
     await expect.poll(async () => (await qaSnapshot(page)).pauseReasons).not.toContain('resize')

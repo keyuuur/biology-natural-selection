@@ -3,11 +3,13 @@ import type { HabitatId, MorphId } from '../simulation/index.ts'
 import {
   createActorLayout,
   remapActorLayout,
+  seededUnit,
   type ActorLayout,
   type ActorMovementState,
   type Bounds,
   type Viewport,
 } from './layout.ts'
+import { advanceFishTraffic } from './fishTraffic.ts'
 
 export type SceneOrganism = {
   id: string
@@ -58,6 +60,15 @@ export type ActorDiagnostic = {
   velocity: { x: number; y: number }
   eligible: boolean
   locked: boolean
+  slot: number
+  profileId: string
+  assignedSpeedPxPerSecond: number
+  patrolSpanPx: number
+  distanceTraveledPx: number
+  boundaryTurns: number
+  collisionTurns: number
+  blockedMs: number
+  maxContinuousBlockedMs: number
 }
 
 export type SceneDiagnostics = {
@@ -76,6 +87,7 @@ export type SceneDiagnostics = {
     averageFps: number
     medianFrameTimeMs: number
     p95FrameTimeMs: number
+    maxFrameTimeMs: number
     framesOver50Ms: number
     sampledFrames: number
   }
@@ -91,6 +103,13 @@ type Actor = {
   locked: boolean
   movementState: ActorMovementState
   velocity: { x: number; y: number }
+  distanceTraveledPx: number
+  boundaryTurns: number
+  collisionTurns: number
+  blockedMs: number
+  continuousBlockedMs: number
+  maxContinuousBlockedMs: number
+  collisionCooldownMs: number
 }
 
 const MAX_FRAME_SAMPLES = 3_600
@@ -289,6 +308,7 @@ export class HabitatScene extends Phaser.Scene {
         p95FrameTimeMs: percentile(sortedSamples, 0.95),
         framesOver50Ms: this.frameSamples.filter((sample) => sample > 50).length,
         sampledFrames: this.frameSamples.length,
+        maxFrameTimeMs: this.frameSamples.length > 0 ? Math.max(...this.frameSamples) : 0,
       },
       duplicateRoundEndCount: this.duplicateRoundEndCount,
     }
@@ -305,8 +325,11 @@ export class HabitatScene extends Phaser.Scene {
       this.eventsBridge.onTick({ roundId: this.round.roundId, remainingMs: this.remainingMs })
     }
 
-    for (const actor of this.actors.values()) this.updateActor(actor, delta)
-
+    if (this.round.habitatId === 'reef_fish') {
+      this.updateMotionFishActors(delta)
+    } else {
+      for (const actor of this.actors.values()) this.updateActor(actor, delta)
+    }
     if (this.remainingMs <= 0) this.emitRoundEnd()
   }
 
@@ -346,14 +369,50 @@ export class HabitatScene extends Phaser.Scene {
     this.backgroundObjects.push(background)
 
     if (habitatId === 'reef_fish') {
-      background.fillStyle(0x1a6f83, 1).fillRect(0, 0, width, height)
-      background.fillStyle(0x15586a, 0.55)
-      for (let y = 34; y < height; y += 58) background.fillRoundedRect(0, y, width, 12, 6)
-      background.fillStyle(0xd9b56d, 0.85).fillRect(0, height - 54, width, 54)
-      background.fillStyle(0x4c8a66, 0.75)
-      for (let x = 25; x < width; x += 82) {
-        background.fillRoundedRect(x, height - 96, 14, 50, 7)
-        background.fillCircle(x + 7, height - 100, 15)
+      const artRandom = seededUnit(0x51f15e)
+      background.fillStyle(0x10596a, 1).fillRect(0, 0, width, height)
+      const waterBands = [0x0e5365, 0x125f70, 0x176878, 0x1b7180, 0x206f7b]
+      for (let band = 0; band < waterBands.length; band += 1) {
+        const top = (height * band) / waterBands.length
+        background.fillStyle(waterBands[band], 0.38)
+          .fillRect(0, top, width, height / waterBands.length + 2)
+      }
+      for (let patch = 0; patch < 24; patch += 1) {
+        const x = artRandom() * width
+        const y = artRandom() * height * 0.78
+        const radiusX = 42 + artRandom() * 120
+        const radiusY = 18 + artRandom() * 54
+        background.fillStyle(patch % 2 === 0 ? 0x0d4c5f : 0x2c7c82, 0.1 + artRandom() * 0.08)
+          .fillEllipse(x, y, radiusX, radiusY)
+      }
+      background.lineStyle(2, 0xb8e0dc, 0.1)
+      for (let shaft = 0; shaft < 16; shaft += 1) {
+        const x = artRandom() * width
+        const y = artRandom() * height * 0.55
+        const length = 32 + artRandom() * 88
+        background.beginPath().moveTo(x, y).lineTo(x + length, y + 8 + artRandom() * 18).strokePath()
+      }
+      for (let mark = 0; mark < 104; mark += 1) {
+        const x = artRandom() * width
+        const y = 22 + artRandom() * Math.max(1, height - 118)
+        const length = 6 + artRandom() * 17
+        background.lineStyle(1 + artRandom(), mark % 3 === 0 ? 0xd4c184 : 0x70aeb0, 0.08 + artRandom() * 0.08)
+        background.beginPath().moveTo(x, y).lineTo(x + length, y + (artRandom() - 0.5) * 5).strokePath()
+      }
+      const seabedTop = height - 64
+      background.fillStyle(0x8f8664, 0.92).fillRect(0, seabedTop, width, height - seabedTop)
+      background.fillStyle(0x566f62, 0.46)
+      for (let rock = 0; rock < 18; rock += 1) {
+        const x = artRandom() * width
+        const y = seabedTop + 10 + artRandom() * 48
+        background.fillEllipse(x, y, 18 + artRandom() * 48, 8 + artRandom() * 20)
+      }
+      for (let plant = 0; plant < 13; plant += 1) {
+        const x = 12 + artRandom() * (width - 24)
+        const plantHeight = 24 + artRandom() * 54
+        const color = plant % 3 === 0 ? 0x64516f : plant % 2 === 0 ? 0x386f68 : 0x4e7e6c
+        background.lineStyle(5 + artRandom() * 4, color, 0.34)
+        background.beginPath().moveTo(x, height).lineTo(x + (artRandom() - 0.5) * 18, height - plantHeight).strokePath()
       }
       return
     }
@@ -397,6 +456,13 @@ export class HabitatScene extends Phaser.Scene {
           ? { kind: 'fish_patrol', direction: layout.direction }
           : { kind: 'moth_landed' },
         velocity: { x: 0, y: 0 },
+        distanceTraveledPx: 0,
+        boundaryTurns: 0,
+        collisionTurns: 0,
+        blockedMs: 0,
+        continuousBlockedMs: 0,
+        maxContinuousBlockedMs: 0,
+        collisionCooldownMs: 0,
       }
       container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         pointer.event.stopPropagation()
@@ -414,24 +480,34 @@ export class HabitatScene extends Phaser.Scene {
     }
   }
 
-  private createOrganism(habitatId: HabitatId, morphId: MorphId): Phaser.GameObjects.Container {
+  private createOrganism(
+    habitatId: HabitatId,
+    morphId: MorphId,
+  ): Phaser.GameObjects.Container {
     const container = this.add.container(0, 0)
     const shape = this.add.graphics()
     const camouflaged = morphId === 'camouflaged'
 
     if (habitatId === 'reef_fish') {
-      const bodyColor = camouflaged ? 0x2f8591 : 0xf3ca52
-      const patternColor = camouflaged ? 0x15586a : 0x703c79
+      const bodyColor = camouflaged
+        ? 0x28717c
+        : 0xd5ad4f
+      const patternColor = camouflaged
+        ? 0x15586a
+        : 0x68456f
       shape.fillStyle(bodyColor, 1).fillEllipse(0, 0, 48, 28)
       shape.fillTriangle(-22, 0, -38, -15, -38, 15)
       shape.fillStyle(patternColor, 0.95)
       if (camouflaged) {
-        for (let x = -13; x <= 15; x += 9) shape.fillCircle(x, 0, 3)
+        const patches = [
+          [-14, -5, 4], [-7, 5, 3], [1, -4, 4], [8, 5, 3], [15, -2, 4],
+          [-12, 7, 2], [5, 8, 2],
+        ] as const
+        for (const [x, y, radius] of patches) shape.fillCircle(x, y, radius)
       } else {
         for (let x = -14; x <= 14; x += 10) shape.fillRect(x, -13, 5, 26)
       }
-      shape.fillStyle(0xffffff, 1).fillCircle(13, -5, 4)
-      shape.fillStyle(0x17342f, 1).fillCircle(14, -5, 2)
+      shape.fillStyle(camouflaged ? 0x123e49 : 0x5f4b1e, 0.95).fillCircle(14, -5, 2.5)
     } else {
       const wingColor = camouflaged ? 0x846347 : 0xe4c8ec
       const patternColor = camouflaged ? 0x4e3427 : 0x70406d
@@ -515,6 +591,70 @@ export class HabitatScene extends Phaser.Scene {
     }
   }
 
+  private updateMotionFishActors(delta: number): void {
+    const activeActors = [...this.actors.values()].filter((actor) => !actor.locked)
+    const states = activeActors.flatMap((actor) => {
+      const profile = actor.layout.movementProfile
+      if (profile.kind !== 'fish_patrol') return []
+      const patrolTop = actor.layout.patrolBounds.y
+      const patrolBottom = patrolTop + actor.layout.patrolBounds.height
+      const nextY = clamp(
+        actor.baseY + Math.sin(this.movementElapsedMs / 750 + profile.phase) * profile.verticalAmplitude,
+        patrolTop,
+        patrolBottom,
+      )
+      return [{
+        id: actor.layout.id,
+        row: Math.floor(actor.layout.slot / 8),
+        x: actor.container.x,
+        y: nextY,
+        direction: actor.direction,
+        speedPxPerSecond: profile.speedPxPerSecond,
+        hitWidth: actor.layout.hitBounds.width,
+        hitHeight: actor.layout.hitBounds.height,
+        patrolLeft: actor.layout.patrolBounds.x,
+        patrolRight: actor.layout.patrolBounds.x + actor.layout.patrolBounds.width,
+        collisionCooldownMs: actor.collisionCooldownMs,
+        collisionTurnCount: actor.collisionTurns,
+        continuousBlockedMs: actor.continuousBlockedMs,
+      }]
+    })
+    const results = advanceFishTraffic(states, delta)
+    const resultById = new Map(results.map((result) => [result.id, result]))
+
+    for (const actor of this.actors.values()) {
+      const result = resultById.get(actor.layout.id)
+      if (!result || actor.locked) {
+        actor.velocity = { x: 0, y: 0 }
+        continue
+      }
+      const beforeX = actor.container.x
+      const beforeY = actor.container.y
+      actor.container.setPosition(result.x, result.y)
+      actor.direction = result.direction
+      actor.collisionCooldownMs = result.collisionCooldownMs
+      actor.container.scaleX = actor.direction
+      actor.movementState = { kind: 'fish_patrol', direction: actor.direction }
+      actor.velocity = {
+        x: (actor.container.x - beforeX) / Math.max(delta / 1000, 0.001),
+        y: (actor.container.y - beforeY) / Math.max(delta / 1000, 0.001),
+      }
+      actor.distanceTraveledPx += Math.hypot(actor.container.x - beforeX, actor.container.y - beforeY)
+      if (result.boundaryTurn) actor.boundaryTurns += 1
+      if (result.collisionTurn) actor.collisionTurns += 1
+      if (result.collisionBlocked) {
+        actor.blockedMs += delta
+        actor.continuousBlockedMs += delta
+        actor.maxContinuousBlockedMs = Math.max(
+          actor.maxContinuousBlockedMs,
+          actor.continuousBlockedMs,
+        )
+      } else {
+        actor.continuousBlockedMs = 0
+      }
+    }
+  }
+
   private flashMiss(x: number, y: number): void {
     const ring = this.add.circle(x, y, 13).setStrokeStyle(3, 0xffffff, 1).setDepth(30)
     const label = this.feedbackLabel(x, y - 30, 'Miss — no penalty')
@@ -580,6 +720,17 @@ export class HabitatScene extends Phaser.Scene {
       velocity: actor.velocity,
       eligible: !actor.locked && Boolean(actor.container.input?.enabled),
       locked: actor.locked,
+      slot: actor.layout.slot,
+      profileId: actor.layout.profileId,
+      assignedSpeedPxPerSecond: actor.layout.movementProfile.kind === 'fish_patrol'
+        ? actor.layout.movementProfile.speedPxPerSecond
+        : 0,
+      patrolSpanPx: actor.layout.patrolBounds.width,
+      distanceTraveledPx: actor.distanceTraveledPx,
+      boundaryTurns: actor.boundaryTurns,
+      collisionTurns: actor.collisionTurns,
+      blockedMs: actor.blockedMs,
+      maxContinuousBlockedMs: actor.maxContinuousBlockedMs,
     }
   }
 

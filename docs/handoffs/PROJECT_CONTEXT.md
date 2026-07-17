@@ -36,7 +36,7 @@
 
 - Standard mode: 25 seconds per generation. Extended mode: 40 seconds, 25% slower movement, 20% larger hit areas.
 - Both modes use the same biology and science-completion path.
-- Organisms are deterministically shuffled before grid placement, and movement profiles are assigned by shuffled slot rather than morph. Location, speed, direction, rest behavior, hit area, and feedback may not become alternate cues for an inherited pattern.
+- Organisms are deterministically shuffled before grid placement. Reef movement profiles are normalized so both morphs receive the same mean speed, vertical-amplitude distribution, and direction balance at every permitted 4–36 population ratio; individual profiles are then deterministically shuffled within each morph. This hidden balancing prevents speed or motion from becoming a trait cue after selection changes morph counts. Location, hit area, feedback, and the realized motion distribution may not become alternate cues for an inherited pattern.
 - The active renderer uses one immediate-input lock per organism, one top-most eligible target, independent pause reasons, normalized rotation remapping, and one round-completion lock. Hidden time never reduces the biology timer.
 - Live play shows catches toward 12, misses, model-protected taps, and the timer; points, accuracy, streaks, and morph-specific catch totals remain outside the live HUD.
 - Use texture, luminance, and pattern rather than hue alone.
