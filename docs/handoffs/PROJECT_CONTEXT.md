@@ -45,6 +45,15 @@
 - Four misconception checks store first attempts, explain errors, and require correction. CER free text is saved but not automatically graded.
 - Do not claim formal NGSS or Missouri standards alignment from the current curriculum sources.
 
+## Approved interface direction
+
+- The approved F2 “Field Station Inserts” direction is the canonical interface system.
+- The app is one continuous dark navy field-lab shell. The global header, eight-step field trail, gameplay frame, live HUD, and privacy footer use cyan and gold status accents.
+- Reading-heavy work happens on warm ivory inserts: mission, prediction, generation review, habitat summaries, evidence, misconception checks, CER, graphs, tables, results, recovery, and observation fallback.
+- Selection, focus, disabled, correct, and retry states must remain distinguishable without relying on color or opacity alone. Primary controls remain at least 56 CSS pixels high.
+- The warm reading surfaces are an interface/readability layer only. They may not change the approved C reef renderer, organism appearance, motion, tap geometry, timing, biology, assessment, persistence, privacy, or result schema.
+- Full-page QA screenshots hide the fixed skip link only while capturing. In the live product it remains keyboard-visible through `:focus-visible`.
+
 ## Rejected or deferred approaches
 
 - Apps Script as the game runtime, React + Three.js + Phaser together, and a deterministic click-through deer loop are rejected for this release.
