@@ -73,12 +73,15 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await tapActors(page, 8)
     const beforeFinal = await qaSnapshot(page)
     expect(beforeFinal.actorCount).toBe(29)
-    await tapActor(page)
-    await expect(
-      page.locator('.habitat-start-overlay').getByText(
-        /12 of 12 caught.*calculating survivors and offspring/i,
-      ),
-    ).toBeVisible()
+    const resolvingMessage = page.locator('.habitat-start-overlay').getByText(
+      /12 of 12 caught.*calculating survivors and offspring/i,
+    )
+    // Arm the assertion before the final tap so slower WebKit automation cannot
+    // miss the intentionally brief 700 ms resolving state.
+    await Promise.all([
+      expect(resolvingMessage).toBeVisible(),
+      tapActor(page),
+    ])
     await clearFocusAndCapture(page, testInfo, 'interaction-manual-resolving-portrait')
 
     const summary = page.getByTestId('generation-summary')

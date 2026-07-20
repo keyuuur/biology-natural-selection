@@ -22,6 +22,7 @@ const STAGE_META: Record<GameStage, { step: number; label: string }> = {
 
 export function GameHeader({ stage, habitatLabel, generation }: GameHeaderProps) {
   const meta = STAGE_META[stage]
+  const trailSteps = Array.from({ length: 8 }, (_, index) => index + 1)
 
   return (
     <header className="game-header">
@@ -47,7 +48,23 @@ export function GameHeader({ stage, habitatLabel, generation }: GameHeaderProps)
           className="progress-track"
           role="progressbar"
         >
-          <span style={{ width: `${(meta.step / 8) * 100}%` }} />
+          <span
+            aria-hidden="true"
+            className="progress-track__fill"
+            style={{ width: `${((meta.step - 1) / 7) * 100}%` }}
+          />
+          <span aria-hidden="true" className="progress-trail">
+            {trailSteps.map((step) => (
+              <i
+                className={[
+                  'progress-node',
+                  step < meta.step ? 'is-complete' : '',
+                  step === meta.step ? 'is-current' : '',
+                ].filter(Boolean).join(' ')}
+                key={step}
+              />
+            ))}
+          </span>
         </div>
       </div>
     </header>

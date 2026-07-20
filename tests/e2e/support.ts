@@ -57,9 +57,25 @@ export async function captureReleasePair(
   ] as const) {
     await page.setViewportSize(viewport)
     await expectResponsive(page)
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+    })
+    const skipLink = page.locator('.skip-link')
+    await skipLink.evaluate((element) => {
+      const htmlElement = element as HTMLElement
+      element.setAttribute('data-screenshot-hidden', 'true')
+      htmlElement.style.visibility = 'hidden'
+    })
     const filename = `${name}-${orientation}.png`
     const screenshotPath = path.join(releaseScreenshotDirectory, filename)
     await page.screenshot({ path: screenshotPath, fullPage: true })
+    await skipLink.evaluate((element) => {
+      const htmlElement = element as HTMLElement
+      element.removeAttribute('data-screenshot-hidden')
+      htmlElement.style.removeProperty('visibility')
+    })
     await testInfo.attach(filename, {
       path: screenshotPath,
       contentType: 'image/png',
