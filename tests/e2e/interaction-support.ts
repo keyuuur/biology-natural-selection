@@ -20,6 +20,7 @@ export type QaActorTarget = {
   morphId: 'camouflaged' | 'conspicuous'
   center: { x: number; y: number }
   hitBounds: { x: number; y: number; width: number; height: number }
+  patrolBounds?: { x: number; y: number; width: number; height: number }
   velocity?: { x: number; y: number }
   landed?: boolean
   locked?: boolean
@@ -91,17 +92,35 @@ export async function waitForQaState(
 
 export async function startGenerationByTouch(page: Page) {
   const start = page.getByTestId('start-generation')
+  await waitForQaState(page, 'ready')
   await expect(start).toBeEnabled()
+  await start.scrollIntoViewIfNeeded()
+  // The ready overlay is created immediately after Phaser's first paint.
+  // Waiting one frame keeps this a real touchscreen action while avoiding a
+  // synthetic tap that lands before the newly enabled button is stable.
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve())
+  }))
   const box = await start.boundingBox()
   expect(box, 'Start button must have a touchable box.').not.toBeNull()
   await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2)
   return waitForQaState(page, 'running')
 }
 
+async function revealActiveCanvas(page: Page) {
+  const canvas = page.locator('canvas')
+  await canvas.scrollIntoViewIfNeeded()
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve())
+  }))
+  return canvas
+}
+
 export async function tapActor(
   page: Page,
   options: { morphId?: QaActorTarget['morphId']; id?: string } = {},
 ) {
+  await revealActiveCanvas(page)
   const before = await qaSnapshot(page)
   const actor = before.actors.find(
     (candidate) =>
@@ -134,23 +153,27 @@ export async function tapActors(
 }
 
 export async function findBlankCanvasPoint(page: Page) {
-  const canvas = page.locator('canvas')
+  const canvas = await revealActiveCanvas(page)
   const box = await canvas.boundingBox()
   expect(box, 'Canvas must have a visible box.').not.toBeNull()
   const { actors } = await qaSnapshot(page)
-  const containsActor = (x: number, y: number) =>
-    actors.some(({ hitBounds }) =>
-      x >= hitBounds.x &&
-      x <= hitBounds.x + hitBounds.width &&
-      y >= hitBounds.y &&
-      y <= hitBounds.y + hitBounds.height,
-    )
+  const canReachPoint = (x: number, y: number) =>
+    actors.some(({ hitBounds }) => {
+      // The active canvas is now a stable, viewport-sized field. Leave a
+      // small movement margin around each current hit region, while still
+      // allowing a real background miss in the densely populated habitat.
+      const tapTravelBuffer = 12
+      return x >= hitBounds.x - tapTravelBuffer &&
+        x <= hitBounds.x + hitBounds.width + tapTravelBuffer &&
+        y >= hitBounds.y - tapTravelBuffer &&
+        y <= hitBounds.y + hitBounds.height + tapTravelBuffer
+    })
 
   for (let row = 1; row < 20; row += 1) {
     for (let column = 1; column < 20; column += 1) {
       const x = box!.x + (box!.width * column) / 20
       const y = box!.y + (box!.height * row) / 20
-      if (!containsActor(x, y)) return { x, y }
+      if (!canReachPoint(x, y)) return { x, y }
     }
   }
   throw new Error('No blank canvas point was available for the miss test.')

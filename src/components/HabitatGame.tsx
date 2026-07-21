@@ -8,6 +8,7 @@ import type {
 } from '../simulation/index.ts'
 import { deriveSeed } from '../simulation/index.ts'
 import type { PhaserSceneController } from '../phaser/PhaserSceneController.ts'
+import { loadPhaserSceneController } from '../phaser/loadPhaserSceneController.ts'
 import type { SceneOrganism, SceneRound } from '../phaser/HabitatScene.ts'
 
 type HabitatGameProps = {
@@ -51,6 +52,7 @@ type QaWindow = Window & {
 type CanvasActorDiagnostic = {
   center?: { x: number; y: number }
   hitBounds?: { x: number; y: number; width: number; height: number }
+  patrolBounds?: { x: number; y: number; width: number; height: number }
   [key: string]: unknown
 }
 
@@ -114,6 +116,7 @@ function diagnosticsWithClientCoordinates(
   const actors = (diagnostics.actors as CanvasActorDiagnostic[]).map((actor) => {
     const canvasCenter = actor.center
     const canvasHitBounds = actor.hitBounds
+    const canvasPatrolBounds = actor.patrolBounds
     return {
       ...actor,
       ...(canvasCenter
@@ -136,6 +139,17 @@ function diagnosticsWithClientCoordinates(
             },
           }
         : {}),
+      ...(canvasPatrolBounds
+        ? {
+            canvasPatrolBounds,
+            patrolBounds: {
+              x: rect.left + canvasPatrolBounds.x * scaleX,
+              y: rect.top + canvasPatrolBounds.y * scaleY,
+              width: canvasPatrolBounds.width * scaleX,
+              height: canvasPatrolBounds.height * scaleY,
+            },
+          }
+        : {}),
     }
   })
   return { ...diagnostics, actors, frameMetrics }
@@ -145,10 +159,15 @@ export function HabitatGame(props: HabitatGameProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<PhaserSceneController | null>(null)
   const rendererBrokenRef = useRef(props.forceRendererFailure ?? false)
+  const rendererInitializationRef = useRef(0)
+  const rendererWatchdogRef = useRef<number | null>(null)
   const completionLockedRef = useRef(false)
+  const completionDeliveredRef = useRef(false)
   const resolvingTimeoutRef = useRef<number | null>(null)
   const handledOrganismIdsRef = useRef(new Set<string>())
   const metricsRef = useRef<MutableMetrics>(emptyMetrics())
+  const visibilityHandlerRef = useRef<(() => void) | null>(null)
+  const blurHandlerRef = useRef<(() => void) | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
 
@@ -182,6 +201,70 @@ export function HabitatGame(props: HabitatGameProps) {
     setStatus(nextStatus)
   }
 
+  function clearRendererWatchdog(): void {
+    if (rendererWatchdogRef.current !== null) {
+      window.clearTimeout(rendererWatchdogRef.current)
+      rendererWatchdogRef.current = null
+    }
+  }
+
+  function removePartialCanvas(): void {
+    hostRef.current?.querySelectorAll('canvas').forEach((canvas) => canvas.remove())
+  }
+
+  function disposeRenderer(): void {
+    const visibilityHandler = visibilityHandlerRef.current
+    if (visibilityHandler) {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityHandlerRef.current = null
+    }
+    const blurHandler = blurHandlerRef.current
+    if (blurHandler) {
+      window.removeEventListener('blur', blurHandler)
+      blurHandlerRef.current = null
+    }
+
+    const controller = controllerRef.current
+    controllerRef.current = null
+    controller?.dispose()
+    removePartialCanvas()
+  }
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    const qaBuild = import.meta.env.DEV || import.meta.env.VITE_INTERACTION_QA === '1'
+    if (!qaBuild || (query.get('qa') !== '1' && query.get('e2e') !== '1')) return
+
+    const qaWindow = window as QaWindow
+    const installedQaBridge: InteractionQaBridge = {
+      snapshot: () => {
+        const canvas = hostRef.current?.querySelector('canvas') ?? null
+        const controller = controllerRef.current
+        const rendererDiagnostics = diagnosticsWithClientCoordinates(
+          (controller as InteractionController | null)?.getDiagnostics?.() ?? {},
+          canvas,
+        )
+        return {
+          ...rendererDiagnostics,
+          roundState: statusRef.current,
+          roundStatus: statusRef.current,
+          remainingMs: remainingMsRef.current,
+          manualCatches: total(metricsRef.current.manualCatches),
+          misses: metricsRef.current.misses,
+          protectedAttempts: metricsRef.current.protectedEscapes,
+          canvasCount: hostRef.current?.querySelectorAll('canvas').length ?? 0,
+          documentCanvasCount: document.querySelectorAll('.habitat-canvas-host canvas').length,
+        }
+      },
+    }
+    qaWindow.__NS_INTERACTION_QA__ = installedQaBridge
+    return () => {
+      if (qaWindow.__NS_INTERACTION_QA__ === installedQaBridge) {
+        delete qaWindow.__NS_INTERACTION_QA__
+      }
+    }
+  }, [])
+
   function updateVisibleTime(nextRemainingMs: number): void {
     const nextSecond = Math.max(0, Math.ceil(nextRemainingMs / 1000))
     remainingMsRef.current = nextRemainingMs
@@ -201,8 +284,26 @@ export function HabitatGame(props: HabitatGameProps) {
     if (!controller) return
     if (props.active) {
       setControllerPause(controller, 'host', false)
+      const scheduledStatus = statusRef.current
       const frame = window.requestAnimationFrame(() => {
+        if (
+          controllerRef.current !== controller ||
+          rendererBrokenRef.current ||
+          !propsRef.current.active
+        ) {
+          return
+        }
+        // Layout still needs a stable-frame resize after the renderer appears.
+        // Only the preview reset below is unsafe once a student has started.
         controller.resize()
+        if (
+          statusRef.current !== scheduledStatus ||
+          statusRef.current === 'running' ||
+          statusRef.current === 'resolving' ||
+          statusRef.current === 'paused'
+        ) {
+          return
+        }
         controller.prepareGeneration(currentSceneRound())
         transition('ready')
         setRendererMessage('Habitat ready. Start when you are ready to hunt.')
@@ -237,6 +338,8 @@ export function HabitatGame(props: HabitatGameProps) {
   }
 
   function deliverCompletion(inputMode: 'interactive' | 'observation', fallbackUsed: boolean): void {
+    if (completionDeliveredRef.current) return
+    completionDeliveredRef.current = true
     const current = propsRef.current
     current.onComplete({
       seed: current.roundSeed,
@@ -251,14 +354,14 @@ export function HabitatGame(props: HabitatGameProps) {
   }
 
   function finishImmediately(inputMode: 'interactive' | 'observation', fallbackUsed: boolean): void {
-    if (completionLockedRef.current) return
+    if (completionLockedRef.current || completionDeliveredRef.current) return
     completionLockedRef.current = true
     controllerRef.current?.finishRound()
     deliverCompletion(inputMode, fallbackUsed)
   }
 
   function beginResolving(trigger: 'manual' | 'timer'): void {
-    if (completionLockedRef.current) return
+    if (completionLockedRef.current || completionDeliveredRef.current) return
     completionLockedRef.current = true
     controllerRef.current?.finishRound()
     transition('resolving')
@@ -274,12 +377,41 @@ export function HabitatGame(props: HabitatGameProps) {
     }, 700)
   }
 
+  function failRenderer(message: string): void {
+    // Renderer failure is a study-level condition. Latching it before any UI
+    // transition prevents later generations from returning to a loading state.
+    rendererBrokenRef.current = true
+    rendererInitializationRef.current += 1
+    clearRendererWatchdog()
+
+    const manualCaptureCount = total(metricsRef.current.manualCatches)
+    completionLockedRef.current = true
+    controllerRef.current?.finishRound()
+    disposeRenderer()
+
+    if (completionDeliveredRef.current) return
+    if (resolvingTimeoutRef.current !== null) {
+      window.clearTimeout(resolvingTimeoutRef.current)
+      resolvingTimeoutRef.current = null
+    }
+
+    if (manualCaptureCount > 0) {
+      deliverCompletion('interactive', true)
+      return
+    }
+
+    completionLockedRef.current = false
+    setRendererMessage(`${message} Observation mode is available.`)
+    transition('fallback')
+  }
+
   useEffect(() => {
     if (resolvingTimeoutRef.current !== null) {
       window.clearTimeout(resolvingTimeoutRef.current)
       resolvingTimeoutRef.current = null
     }
     completionLockedRef.current = false
+    completionDeliveredRef.current = false
     handledOrganismIdsRef.current.clear()
     metricsRef.current = emptyMetrics()
     setDisplayMetrics(metricsRef.current)
@@ -302,22 +434,56 @@ export function HabitatGame(props: HabitatGameProps) {
   }, [roundId, props.active, props.durationMs, props.forceRendererFailure])
 
   useEffect(() => {
-    if (props.forceRendererFailure) return
+    if (props.forceRendererFailure || rendererBrokenRef.current) return
     let cancelled = false
-    let visibilityHandler: (() => void) | null = null
-    let installedQaBridge: InteractionQaBridge | null = null
+    let controller: PhaserSceneController | null = null
+    let rendererReady = false
+    const initializationToken = rendererInitializationRef.current + 1
+    rendererInitializationRef.current = initializationToken
+
+    const isCurrentInitialization = () =>
+      !cancelled &&
+      rendererInitializationRef.current === initializationToken &&
+      !rendererBrokenRef.current
+
+    const prepareRenderer = () => {
+      if (
+        !controller ||
+        controllerRef.current !== controller ||
+        !isCurrentInitialization() ||
+        statusRef.current === 'running' ||
+        statusRef.current === 'resolving' ||
+        statusRef.current === 'paused'
+      ) {
+        return
+      }
+      clearRendererWatchdog()
+      controller.prepareGeneration(currentSceneRound())
+      if (!isCurrentInitialization()) return
+      transition('ready')
+      setRendererMessage('Habitat ready. Start when you are ready to hunt.')
+    }
+
+    const startReadinessWatchdog = () => {
+      clearRendererWatchdog()
+      rendererWatchdogRef.current = window.setTimeout(() => {
+        if (!isCurrentInitialization()) return
+        failRenderer('The habitat renderer took too long to start.')
+      }, 10_000)
+    }
 
     async function mountRenderer() {
       const host = hostRef.current
       if (!host) return
+      startReadinessWatchdog()
       try {
-        const module = await import('../phaser/PhaserSceneController.ts')
-        if (cancelled || !hostRef.current) return
-        const controller = new module.PhaserSceneController(hostRef.current, {
+        controller = await loadPhaserSceneController(host, {
           onReady: () => {
-            controllerRef.current?.prepareGeneration(currentSceneRound())
-            transition('ready')
-            setRendererMessage('Habitat ready. Start when you are ready to hunt.')
+            rendererReady = true
+            // Phaser can call this while its constructor is still returning.
+            // Do not expose an enabled Start button until the controller has
+            // been attached to React's lifecycle ref below.
+            if (controllerRef.current === controller) prepareRenderer()
           },
           onOrganismTapped: ({ roundId: eventRoundId, organismId, morphId, elapsedMs }) => {
             if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
@@ -369,79 +535,59 @@ export function HabitatGame(props: HabitatGameProps) {
             beginResolving('timer')
           },
           onError: (message) => {
-            if (completionLockedRef.current) return
-            rendererBrokenRef.current = true
-            controllerRef.current?.finishRound()
-            if (total(metricsRef.current.manualCatches) > 0) {
-              finishImmediately('interactive', true)
-            } else {
-              setRendererMessage(`${message} Observation mode will finish this generation.`)
-              transition('fallback')
-            }
+            if (!isCurrentInitialization()) return
+            failRenderer(message)
           },
         })
-        controllerRef.current = controller
-
-        const query = new URLSearchParams(window.location.search)
-        const qaBuild = import.meta.env.DEV || import.meta.env.VITE_INTERACTION_QA === '1'
-        if (qaBuild && (query.get('qa') === '1' || query.get('e2e') === '1')) {
-          const qaWindow = window as QaWindow
-          installedQaBridge = {
-            snapshot: () => {
-              const canvas = hostRef.current?.querySelector('canvas') ?? null
-              const rendererDiagnostics = diagnosticsWithClientCoordinates(
-                (controller as InteractionController).getDiagnostics?.() ?? {},
-                canvas,
-              )
-              return {
-                ...rendererDiagnostics,
-                roundState: statusRef.current,
-                roundStatus: statusRef.current,
-                remainingMs: remainingMsRef.current,
-                manualCatches: total(metricsRef.current.manualCatches),
-                misses: metricsRef.current.misses,
-                protectedAttempts: metricsRef.current.protectedEscapes,
-                canvasCount: hostRef.current?.querySelectorAll('canvas').length ?? 0,
-                documentCanvasCount: document.querySelectorAll('.habitat-canvas-host canvas').length,
-              }
-            },
-          }
-          qaWindow.__NS_INTERACTION_QA__ = installedQaBridge
+        if (!controller || !isCurrentInitialization() || !hostRef.current) {
+          controller?.dispose()
+          return
         }
+        const initializedController = controller
+        controllerRef.current = initializedController
 
-        visibilityHandler = () => {
-          if (!propsRef.current.active || statusRef.current !== 'running') return
+        const visibilityHandler = () => {
+          const canPause = statusRef.current === 'running' || statusRef.current === 'paused'
+          if (!propsRef.current.active || !canPause) return
           if (document.hidden) {
-            setControllerPause(controller, 'visibility', true)
-            transition('paused')
+            setControllerPause(initializedController, 'visibility', true)
+            if (statusRef.current === 'running') transition('paused')
             setRendererMessage('Study paused. Resume when you are ready.')
             setLiveMessage('Study paused. The timer is stopped.')
           }
         }
         document.addEventListener('visibilitychange', visibilityHandler)
+        visibilityHandlerRef.current = visibilityHandler
+
+        const blurHandler = () => {
+          const canPause = statusRef.current === 'running' || statusRef.current === 'paused'
+          if (!propsRef.current.active || !canPause) return
+          setControllerPause(initializedController, 'blur', true)
+          if (statusRef.current === 'running') transition('paused')
+          setRendererMessage('Study paused. Resume when you are ready.')
+          setLiveMessage('Study paused. The timer is stopped.')
+        }
+        window.addEventListener('blur', blurHandler)
+        blurHandlerRef.current = blurHandler
+        if (rendererReady) prepareRenderer()
       } catch (error) {
-        if (cancelled) return
-        setRendererMessage(
-          `${error instanceof Error ? error.message : 'The habitat renderer could not load.'} Observation mode is available.`,
-        )
-        transition('fallback')
+        if (!isCurrentInitialization()) return
+        failRenderer(error instanceof Error ? error.message : 'The habitat renderer could not load.')
       }
     }
 
     void mountRenderer()
     return () => {
       cancelled = true
+      if (rendererInitializationRef.current === initializationToken) {
+        rendererInitializationRef.current += 1
+        clearRendererWatchdog()
+      }
       if (resolvingTimeoutRef.current !== null) {
         window.clearTimeout(resolvingTimeoutRef.current)
         resolvingTimeoutRef.current = null
       }
-      if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler)
-      const qaWindow = window as QaWindow
-      if (installedQaBridge && qaWindow.__NS_INTERACTION_QA__ === installedQaBridge) {
-        delete qaWindow.__NS_INTERACTION_QA__
-      }
-      controllerRef.current?.dispose()
-      controllerRef.current = null
+      disposeRenderer()
     }
   }, [props.forceRendererFailure])
 

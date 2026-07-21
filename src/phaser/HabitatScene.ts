@@ -55,6 +55,7 @@ export type ActorDiagnostic = {
   center: { x: number; y: number; coordinateSpace: 'canvas' }
   hitBounds: Bounds
   visualBounds: Bounds
+  patrolBounds: Bounds
   movementState: ActorMovementState
   landed: boolean
   velocity: { x: number; y: number }
@@ -715,6 +716,7 @@ export class HabitatScene extends Phaser.Scene {
       center: { x, y, coordinateSpace: 'canvas' },
       hitBounds: centeredBounds(x, y, actor.layout.hitBounds.width, actor.layout.hitBounds.height),
       visualBounds: centeredBounds(x, y, actor.layout.visualBounds.width, actor.layout.visualBounds.height),
+      patrolBounds: actor.layout.patrolBounds,
       movementState: actor.movementState,
       landed: actor.movementState.kind === 'moth_landed',
       velocity: actor.velocity,

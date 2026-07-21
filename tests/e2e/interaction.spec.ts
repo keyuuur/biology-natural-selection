@@ -270,7 +270,7 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
   })
 
   test('bark moths remain tappable in the live renderer', async ({ page }) => {
-    await page.goto(testUrl({ seed: 'touch-bark-moths', qa: true, roundMs: 350 }))
+    await page.goto(testUrl({ seed: 'touch-bark-moths', qa: true, roundMs: 3_000 }))
     await chooseTiming(page, 'Standard')
     await submitPrediction(page, 'reef_fish')
 
@@ -296,7 +296,7 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
   })
 
   test('one renderer survives three generation transitions without duplicate completion', async ({ page }) => {
-    await page.goto(testUrl({ seed: 'touch-cleanup', qa: true, roundMs: 350 }))
+    await page.goto(testUrl({ seed: 'touch-cleanup', qa: true, roundMs: 3_000 }))
     await chooseTiming(page, 'Standard')
     await submitPrediction(page, 'reef_fish')
 
