@@ -1,6 +1,7 @@
 import { useMemo, useReducer } from 'react'
 import {
   HABITATS,
+  calculatePredatorAccuracyPercent,
   createGraphSeries,
   createNaturalSelectionResult,
   deriveSeed,
@@ -74,10 +75,10 @@ function buildCompletedResult(session: GameSession, cer: CerDraft): NaturalSelec
     evidence: [...evidence.population, evidence.comparison],
     reasoning: cer.reasoning.trim(),
   }
-  const attempts = session.performance.manualCaptures + session.performance.misses
-  const accuracyPercent = attempts === 0
-    ? 0
-    : Math.round((session.performance.manualCaptures / attempts) * 100)
+  const accuracyPercent = calculatePredatorAccuracyPercent(
+    session.performance.manualCaptures,
+    session.performance.misses,
+  )
 
   return createNaturalSelectionResult({
     sessionId: session.sessionId,

@@ -16,27 +16,49 @@ import { LocalResultSaver } from './resultSaver.ts'
 const DRAFT_KEY = 'natural-selection:v2:session-draft'
 const RESULT_KEY = 'natural-selection:v2:last-result'
 
-function completedHabitat(habitat: HabitatConfig): readonly GenerationResult[] {
+function completedHabitat(
+  habitat: HabitatConfig,
+  fractionalAccuracy = false,
+): readonly GenerationResult[] {
   let state = createInitialState(habitat)
   for (let generation = 1; generation <= 3; generation += 1) {
-    const metrics: PlayerRoundMetrics = {
-      seed: generation * 100 + (habitat.id === 'reef_fish' ? 1 : 2),
-      manualCatches: { camouflaged: 0, conspicuous: 0 },
-      misses: 0,
-      protectedEscapes: 0,
-      elapsedMs: 25_000,
-      timingMode: 'standard',
-      inputMode: 'observation',
-      fallbackUsed: true,
-    }
+    const metrics: PlayerRoundMetrics = fractionalAccuracy && habitat.id === 'reef_fish' && generation === 1
+      ? {
+          seed: 901,
+          manualCatches: { camouflaged: 1, conspicuous: 0 },
+          misses: 2,
+          protectedEscapes: 0,
+          elapsedMs: 25_000,
+          timingMode: 'standard',
+          inputMode: 'interactive',
+          fallbackUsed: false,
+        }
+      : {
+          seed: generation * 100 + (habitat.id === 'reef_fish' ? 1 : 2),
+          manualCatches: { camouflaged: 0, conspicuous: 0 },
+          misses: 0,
+          protectedEscapes: 0,
+          elapsedMs: 25_000,
+          timingMode: 'standard',
+          inputMode: 'observation',
+          fallbackUsed: true,
+        }
     state = runGeneration(state, metrics, habitat).nextState
   }
   return state.history
 }
 
-function completedResult(): NaturalSelectionResult {
-  const reef = completedHabitat(REEF_FISH_HABITAT)
+function completedResult(fractionalAccuracy = false): NaturalSelectionResult {
+  const reef = completedHabitat(REEF_FISH_HABITAT, fractionalAccuracy)
   const moths = completedHabitat(BARK_MOTH_HABITAT)
+  const generations = [...reef, ...moths]
+  const manualCaptures = generations.reduce(
+    (sum, generation) => sum + generation.manualCatches.camouflaged + generation.manualCatches.conspicuous,
+    0,
+  )
+  const misses = generations.reduce((sum, generation) => sum + generation.misses, 0)
+  const protectedEscapes = generations.reduce((sum, generation) => sum + generation.protectedEscapes, 0)
+  const points = generations.reduce((sum, generation) => sum + generation.predatorPoints, 0)
   const evidence = {
     population: [
       { kind: 'population' as const, habitatId: 'reef_fish' as const, generation: 0 },
@@ -86,11 +108,11 @@ function completedResult(): NaturalSelectionResult {
         'Inherited variation affected survival and reproduction, changing offspring percentages.',
     },
     predatorPerformance: {
-      manualCaptures: 0,
-      misses: 0,
-      protectedEscapes: 0,
-      points: 0,
-      accuracyPercent: 0,
+      manualCaptures,
+      misses,
+      protectedEscapes,
+      points,
+      accuracyPercent: manualCaptures === 0 ? 0 : (manualCaptures / (manualCaptures + misses)) * 100,
     },
     scienceCompletion: {
       firstAttemptCorrect: 4,
@@ -142,6 +164,16 @@ describe('LocalResultSaver v2', () => {
     expect(saver.loadLastResult()).toEqual(completedResult())
     expect(window.localStorage.getItem(RESULT_KEY)).not.toContain('studentName')
     expect(window.localStorage.getItem(RESULT_KEY)).not.toContain('period')
+  })
+
+  it('preserves exact fractional predator accuracy in local-only result storage', () => {
+    const saver = new LocalResultSaver()
+    const result = completedResult(true)
+
+    saver.saveResult(result)
+
+    expect(saver.loadLastResult()?.predatorPerformance.accuracyPercent).toBeCloseTo(100 / 3, 12)
+    expect(window.localStorage.getItem(RESULT_KEY)).toContain('33.33333333333333')
   })
 
   it.each([

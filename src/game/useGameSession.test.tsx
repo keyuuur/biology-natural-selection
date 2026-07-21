@@ -18,10 +18,12 @@ function observationRound(seed: number): PlayerRoundMetrics {
 
 function completeCurrentHabitat(
   result: ReturnType<typeof renderHook<ReturnType<typeof useGameSession>, unknown>>['result'],
+  metricsForGeneration: (generation: number, seed: number) => PlayerRoundMetrics =
+    (_generation, seed) => observationRound(seed),
 ) {
   for (let generation = 1; generation <= 3; generation += 1) {
     expect(result.current.session.stage).toBe('round')
-    act(() => result.current.completeRound(observationRound(result.current.roundSeed)))
+    act(() => result.current.completeRound(metricsForGeneration(generation, result.current.roundSeed)))
     expect(result.current.session.stage).toBe('generation_review')
     expect(result.current.currentSimulation.generation).toBe(generation)
     act(() => result.current.continueAfterReview())
@@ -173,5 +175,61 @@ describe('useGameSession v2', () => {
     expect(result.current.session.seed).not.toBe(originalSeed)
     expect(result.current.session.habitats.reef_fish.simulation.generation).toBe(0)
     expect(result.current.session.habitats.bark_moths.simulation.generation).toBe(0)
+  })
+
+  it('reaches Results with exact fractional predator accuracy', () => {
+    const { result } = renderHook(() => useGameSession())
+
+    act(() => result.current.selectTiming('standard'))
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'The reef-matched inherited pattern may reduce predation.',
+      ),
+    )
+    completeCurrentHabitat(result, (generation, seed) =>
+      generation === 1
+        ? {
+            seed,
+            manualCatches: { camouflaged: 1, conspicuous: 0 },
+            misses: 2,
+            protectedEscapes: 0,
+            elapsedMs: 25_000,
+            timingMode: 'standard',
+            inputMode: 'interactive',
+            fallbackUsed: false,
+          }
+        : observationRound(seed),
+    )
+    act(() => result.current.continueAfterHabitat())
+    act(() =>
+      result.current.submitPrediction(
+        'camouflaged',
+        'The bark-matched inherited pattern may reduce predation.',
+      ),
+    )
+    completeCurrentHabitat(result)
+    act(() => result.current.continueAfterHabitat())
+
+    selectRequiredEvidence(result)
+    act(() => result.current.enterChecks())
+    result.current.misconceptionQuestions.forEach((question) => {
+      const correctChoice = question.choices.find((choice) => choice.isCorrect)
+      expect(correctChoice).toBeDefined()
+      act(() => result.current.answerCheck(question.id, correctChoice!.id, true))
+      act(() => result.current.nextCheck())
+    })
+
+    act(() =>
+      result.current.completeCer({
+        claimId: 'data-supported-selection',
+        reasoning:
+          'Inherited variation changed survival and reproduction, so offspring changed population percentages.',
+      }),
+    )
+
+    expect(result.current.session.stage).toBe('results')
+    expect(result.current.session.completedResult?.predatorPerformance.accuracyPercent)
+      .toBeCloseTo(100 / 3, 12)
   })
 })

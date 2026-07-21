@@ -60,7 +60,7 @@ export function ResultsScreen({
               <div><dt>Points</dt><dd>{result.predatorPerformance.points}</dd></div>
               <div><dt>Manual captures</dt><dd>{result.predatorPerformance.manualCaptures}</dd></div>
               <div><dt>Misses</dt><dd>{result.predatorPerformance.misses}</dd></div>
-              <div><dt>Tap accuracy</dt><dd>{result.predatorPerformance.accuracyPercent}%</dd></div>
+              <div><dt>Tap accuracy</dt><dd>{Math.round(result.predatorPerformance.accuracyPercent)}%</dd></div>
             </dl>
           )}
           <p className="model-note">

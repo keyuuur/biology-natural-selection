@@ -53,6 +53,7 @@ export {
 } from './generationRunner.ts'
 export { createGraphPoint, createGraphSeries } from './graphSeries.ts'
 export {
+  calculatePredatorAccuracyPercent,
   createNaturalSelectionResult,
   parseNaturalSelectionResult,
   serializeNaturalSelectionResult,

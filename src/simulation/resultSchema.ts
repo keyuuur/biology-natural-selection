@@ -110,6 +110,19 @@ function assertClose(actual: number, expected: number, label: string): void {
   }
 }
 
+/**
+ * Keeps result construction and validation on one exact accuracy contract.
+ * Protected-parent attempts are intentionally not inputs because they are
+ * neither catches nor misses.
+ */
+export function calculatePredatorAccuracyPercent(
+  manualCaptures: number,
+  misses: number,
+): number {
+  const attempts = manualCaptures + misses
+  return attempts === 0 ? 0 : (manualCaptures / attempts) * 100
+}
+
 function readTimingMode(value: unknown, label: string): SelectedTimingMode {
   if (value !== 'standard' && value !== 'extended') {
     throw new Error(`${label} must be standard or extended.`)
@@ -445,8 +458,7 @@ function sanitizeNaturalSelectionResult(value: unknown): NaturalSelectionResult 
   )
   // Protected escapes are conservation safeguards, not successful captures or
   // misses, so they are intentionally excluded from tap accuracy.
-  const attempts = manualCaptures + misses
-  const expectedAccuracy = attempts === 0 ? 0 : (manualCaptures / attempts) * 100
+  const expectedAccuracy = calculatePredatorAccuracyPercent(manualCaptures, misses)
   if (
     predatorPerformance.manualCaptures !== manualCaptures ||
     predatorPerformance.misses !== misses ||

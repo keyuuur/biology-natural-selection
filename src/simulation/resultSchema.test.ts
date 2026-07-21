@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BARK_MOTH_HABITAT, REEF_FISH_HABITAT, createInitialState } from './habitats.ts'
 import { runGeneration, totalCounts } from './generationRunner.ts'
 import {
+  calculatePredatorAccuracyPercent,
   createNaturalSelectionResult,
   parseNaturalSelectionResult,
   serializeNaturalSelectionResult,
@@ -133,13 +134,99 @@ function makeResult(): NaturalSelectionResult {
   })
 }
 
+function makeFractionalAccuracyResult(): NaturalSelectionResult {
+  const template = makeResult()
+  const oneCatchThenObservation = (habitat: HabitatConfig): readonly GenerationResult[] => {
+    let state = createInitialState(habitat)
+    for (let generation = 1; generation <= 3; generation += 1) {
+      const metrics: PlayerRoundMetrics = generation === 1 && habitat.id === 'reef_fish'
+        ? {
+            seed: 8_001,
+            manualCatches: { camouflaged: 1, conspicuous: 0 },
+            misses: 2,
+            protectedEscapes: 0,
+            elapsedMs: 25_000,
+            timingMode: 'standard',
+            inputMode: 'interactive',
+            fallbackUsed: false,
+          }
+        : {
+            seed: 8_000 + generation + (habitat.id === 'reef_fish' ? 0 : 100),
+            manualCatches: { camouflaged: 0, conspicuous: 0 },
+            misses: 0,
+            protectedEscapes: 0,
+            elapsedMs: 25_000,
+            timingMode: 'standard',
+            inputMode: 'observation',
+            fallbackUsed: true,
+          }
+      state = runGeneration(state, metrics, habitat).nextState
+    }
+    return state.history
+  }
+  const reef = oneCatchThenObservation(REEF_FISH_HABITAT)
+  const moths = oneCatchThenObservation(BARK_MOTH_HABITAT)
+  const generations = [...reef, ...moths]
+  const manualCaptures = generations.reduce(
+    (sum, generation) => sum + totalCounts(generation.manualCatches),
+    0,
+  )
+  const misses = generations.reduce((sum, generation) => sum + generation.misses, 0)
+  const protectedEscapes = generations.reduce(
+    (sum, generation) => sum + generation.protectedEscapes,
+    0,
+  )
+  const points = generations.reduce((sum, generation) => sum + generation.predatorPoints, 0)
+
+  return createNaturalSelectionResult({
+    ...template,
+    habitats: {
+      reef_fish: { habitatId: 'reef_fish', generations: reef },
+      bark_moths: { habitatId: 'bark_moths', generations: moths },
+    },
+    predatorPerformance: {
+      manualCaptures,
+      misses,
+      protectedEscapes,
+      points,
+      accuracyPercent: calculatePredatorAccuracyPercent(manualCaptures, misses),
+    },
+  })
+}
+
 describe('NaturalSelectionResult v2', () => {
+  it.each([
+    [0, 0, 0],
+    [3, 2, 60],
+    [1, 2, 100 / 3],
+    [12, 1, 1200 / 13],
+  ])('calculates exact predator accuracy for %i captures and %i misses', (captures, misses, expected) => {
+    expect(calculatePredatorAccuracyPercent(captures, misses)).toBeCloseTo(expected, 12)
+  })
+
   it('round-trips a complete two-habitat identity-free result', () => {
     const result = makeResult()
     expect(parseNaturalSelectionResult(serializeNaturalSelectionResult(result)))
       .toEqual(result)
     expect(result.habitats.reef_fish.generations).toHaveLength(3)
     expect(result.habitats.bark_moths.generations).toHaveLength(3)
+  })
+
+  it('preserves exact fractional accuracy while rejecting a display-rounded aggregate', () => {
+    const result = makeFractionalAccuracyResult()
+    expect(result.predatorPerformance.accuracyPercent).toBeCloseTo(100 / 3, 12)
+    expect(parseNaturalSelectionResult(serializeNaturalSelectionResult(result)))
+      .toEqual(result)
+
+    expect(() =>
+      createNaturalSelectionResult({
+        ...result,
+        predatorPerformance: {
+          ...result.predatorPerformance,
+          accuracyPercent: 33,
+        },
+      }),
+    ).toThrow('does not match')
   })
 
   it('drops accidental identity fields at every schema boundary', () => {
