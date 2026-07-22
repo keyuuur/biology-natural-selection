@@ -325,6 +325,17 @@ export class HabitatScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Starts a new facilitator measurement window without touching the live
+   * population, timer, actors, or round state. This is intentionally separate
+   * from prepareRound() because a technical session can span several rounds.
+   */
+  resetDiagnostics(): void {
+    this.frameSamples.length = 0
+    this.latestFeedbackLatencyMs = null
+    this.duplicateRoundEndCount = 0
+  }
+
   update(_time: number, delta: number): void {
     if (!this.round || !this.running || this.pauseReasons.size > 0) return
     this.captureFrameSample(delta)

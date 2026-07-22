@@ -32,8 +32,10 @@ Before any device or student session:
 - No student identity is requested: [ ]
 
 Open the facilitator URL with `?qa=1`. Open **Facilitator diagnostics**, press
-**Reset facilitator counters**, and close the panel before each session. It is
-in-flow below the field and must never cover prey or intercept a tap.
+**Reset facilitator session data**, and close the panel before each session. It
+is in-flow below the field and must never cover prey or intercept a tap. The
+reset begins a fresh in-memory device-measurement window; it never changes the
+live population, timer, HUD, or student science path.
 
 The panel's input-latency values measure Phaser input handling through feedback
 creation, not physical touch-to-photon paint time. Use them as a repeatable
@@ -68,8 +70,8 @@ Then perform two short route checks, separate from the three primary sessions:
   sample count. Use at least the 24 Session-1 centered taps for the primary
   sample. Do not label it physical display latency.
 - **Average gameplay FPS:** after at least 20 seconds of a full-density live
-  round, record the panel's current renderer sample. Record its frame p95 and
-  frames over 50 ms beside it.
+  round, record the panel's current renderer sample and frame-sample count.
+  Record its frame p95 and frames over 50 ms beside it.
 - **Visible freeze:** time or estimate any plainly visible frozen interaction;
   record the longest observed freeze. A pause overlay is not a freeze.
 - **Timer preservation:** record remaining time immediately before backgrounding

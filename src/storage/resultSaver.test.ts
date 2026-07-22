@@ -202,6 +202,19 @@ describe('LocalResultSaver v2', () => {
     expect(window.localStorage.getItem(RESULT_KEY)).not.toContain('period')
   })
 
+  it('clears a previous local result when a shared device starts over', () => {
+    const saver = new LocalResultSaver()
+    saver.saveDraft(createFreshSession(99))
+    saver.saveResult(completedResult())
+
+    expect(saver.loadLastResult()).toEqual(completedResult())
+    saver.clearStudyData()
+
+    expect(saver.loadDraft()).toEqual({ status: 'none' })
+    expect(saver.loadLastResult()).toBeNull()
+    expect(window.localStorage.getItem(RESULT_KEY)).toBeNull()
+  })
+
   it('preserves exact fractional predator accuracy in local-only result storage', () => {
     const saver = new LocalResultSaver()
     const result = completedResult(true)

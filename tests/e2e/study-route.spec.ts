@@ -99,6 +99,54 @@ async function expectPortraitStageDockAfterDocumentScroll(
 }
 
 test.describe('Student study routes @webkit', () => {
+  test('draft recovery traps focus, restores a study heading, and starts over safely', async ({ page }) => {
+    await page.goto(testUrl({ seed: 'draft-recovery-focus' }))
+    await chooseTiming(page, 'Standard')
+    await expect(page.getByTestId('prediction-reef_fish')).toBeVisible()
+    await expect.poll(async () => page.evaluate(() => (
+      window.localStorage.getItem('natural-selection:v2:session-draft') !== null
+    ))).toBe(true)
+
+    await page.reload()
+    const dialog = page.getByTestId('draft-recovery')
+    const resume = dialog.getByRole('button', { name: /resume study/i })
+    const startOver = dialog.getByRole('button', { name: /start over/i })
+    await expect(dialog).toBeVisible()
+    await expect(resume).toBeFocused()
+    await expect(page.locator('main#main-content')).toHaveAttribute('inert', '')
+
+    await page.keyboard.press('Shift+Tab')
+    await expect(startOver).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(resume).toBeFocused()
+
+    await resume.click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('main [data-stage-heading]').first()).toBeFocused()
+
+    await page.reload()
+    await expect(dialog).toBeVisible()
+    await startOver.click()
+    await expect(page.getByTestId('mission-screen')).toBeVisible()
+    await expect(page.locator('main [data-stage-heading]').first()).toBeFocused()
+    await expect(page.locator('main#main-content')).not.toHaveAttribute('inert', '')
+  })
+
+  test('beginning a new study clears prior local result text on a shared device', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'natural-selection:v2:last-result',
+        JSON.stringify({ reasoning: 'a prior student report' }),
+      )
+    })
+    await page.goto(testUrl({ seed: 'shared-device-clear' }))
+    await chooseTiming(page, 'Standard')
+
+    await expect.poll(async () => page.evaluate(() => (
+      window.localStorage.getItem('natural-selection:v2:last-result')
+    ))).toBeNull()
+  })
+
   test('Predator round stays inside the main landmark and focuses its live heading', async ({ page }) => {
     await page.goto(testUrl({ seed: 'predator-main-focus', qa: true, roundMs: 60_000 }))
     await chooseTiming(page, 'Standard')

@@ -175,6 +175,25 @@ export class LocalResultSaver {
     }
   }
 
+  /**
+   * Shared iPads must not retain a previous student's free-text field report
+   * after the next study begins. This remains local-only and best-effort so a
+   * storage failure never prevents classroom use.
+   */
+  clearLastResult(): void {
+    try {
+      if (forcedFailure()) throw new Error('Storage failure requested for testing.')
+      window.localStorage.removeItem(RESULT_KEY)
+    } catch {
+      // Clearing local data must never block a new study.
+    }
+  }
+
+  clearStudyData(): void {
+    this.clearDraft()
+    this.clearLastResult()
+  }
+
   saveResult(result: NaturalSelectionResult): void {
     this.write(RESULT_KEY, serializeNaturalSelectionResult(result))
     this.clearDraft()

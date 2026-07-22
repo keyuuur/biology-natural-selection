@@ -66,6 +66,11 @@ export function FacilitatorQaPanel({
   const canvasCount = numberFrom(snapshot, 'canvasCount')
   const rendererInactive = controllerCount === null || controllerCount === 0
 
+  function resetSession(): void {
+    onReset()
+    setSnapshot(readRendererSnapshot())
+  }
+
   return (
     <details
       aria-label="Facilitator diagnostics"
@@ -103,13 +108,14 @@ export function FacilitatorQaPanel({
               <div><dt>Average FPS</dt><dd data-testid="qa-average-fps">{displayNumber(nestedNumber(snapshot, 'frameMetrics', 'averageFps'), 1)}</dd></div>
               <div><dt>Frame p95</dt><dd data-testid="qa-frame-p95">{displayMilliseconds(nestedNumber(snapshot, 'frameMetrics', 'p95FrameTimeMs'))}</dd></div>
               <div><dt>Frames over 50 ms</dt><dd>{displayNumber(nestedNumber(snapshot, 'frameMetrics', 'framesOver50Ms'))}</dd></div>
+              <div><dt>Frames sampled</dt><dd data-testid="qa-frame-sample-count">{displayNumber(nestedNumber(snapshot, 'frameMetrics', 'sampledFrames'))}</dd></div>
               <div><dt>Duplicate ends</dt><dd data-testid="qa-duplicate-ends">{displayNumber(numberFrom(snapshot, 'duplicateRoundEndCount'))}</dd></div>
               <div><dt>Pause reasons</dt><dd>{pauseReasons.length > 0 ? pauseReasons.join(', ') : 'none'}</dd></div>
             </dl>
           )}
         </section>
-        <button className="secondary-button" data-testid="qa-reset" onClick={onReset} type="button">
-          Reset facilitator counters
+        <button className="secondary-button" data-testid="qa-reset" onClick={resetSession} type="button">
+          Reset facilitator session data
         </button>
       </div>
     </details>

@@ -9,11 +9,11 @@ import {
 } from './e2eControls.ts'
 
 describe('local E2E control gates', () => {
-  it('keeps development and explicitly built QA artifacts enabled', () => {
+  it('keeps development and explicitly built non-public E2E artifacts enabled', () => {
     expect(isE2eControlBuild({ DEV: true })).toBe(true)
-    const qaBuild = { DEV: false, VITE_INTERACTION_QA: '1' }
-    expect(isE2eControlBuild(qaBuild)).toBe(true)
-    expect(e2eControlParams('?e2e=1&e2eRoundMs=100', qaBuild)?.get('e2eRoundMs')).toBe('100')
+    const e2eBuild = { DEV: false, VITE_E2E_CONTROLS: '1' }
+    expect(isE2eControlBuild(e2eBuild)).toBe(true)
+    expect(e2eControlParams('?e2e=1&e2eRoundMs=100', e2eBuild)?.get('e2eRoundMs')).toBe('100')
   })
 
   it('ignores all E2E URL controls in a normal production build', () => {
@@ -26,6 +26,10 @@ describe('local E2E control gates', () => {
 
   it('shows the facilitator panel only for an explicitly requested QA URL', () => {
     const qaBuild = { DEV: false, VITE_INTERACTION_QA: '1' }
+    expect(isE2eControlBuild(qaBuild)).toBe(false)
+    expect(e2eControlParams('?e2e=1&e2eRoundMs=100&e2eRenderer=fail', qaBuild)).toBeNull()
+    expect(interactionQaParams('?e2e=1&qa=1&e2ePlacementSeed=101', qaBuild)).toBeNull()
+    expect(diagnosticsBridgeEnabled('?qa=1', qaBuild)).toBe(false)
     expect(facilitatorQaPanelEnabled('', qaBuild)).toBe(false)
     expect(facilitatorQaPanelEnabled('?qa=1', qaBuild)).toBe(true)
     expect(facilitatorQaPanelEnabled('?e2e=1', { DEV: true })).toBe(false)

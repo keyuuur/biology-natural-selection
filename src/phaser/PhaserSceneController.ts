@@ -228,6 +228,12 @@ export class PhaserSceneController {
     }
   }
 
+  /** Reset facilitator-only performance counters without changing play. */
+  resetDiagnostics(): void {
+    if (this.disposed) return
+    this.scene?.resetDiagnostics()
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true

@@ -16,6 +16,7 @@ import {
   chooseTiming,
   completeCer,
   completeMisconceptions,
+  expectResponsive,
   playHabitat,
   selectRequiredEvidence,
   submitPrediction,
@@ -46,7 +47,7 @@ async function openInteractiveRound(
 }
 
 test.describe('Natural Selection direct-touch interaction polish', () => {
-  test('facilitator diagnostics are opt-in and reset without changing play', async ({ page }) => {
+  test('facilitator diagnostics are opt-in and reset without changing play @webkit', async ({ page }) => {
     await page.goto(testUrl({ seed: 'facilitator-panel-student', roundMs: 3_000 }))
     await chooseTiming(page, 'Standard')
     await submitPrediction(page, 'reef_fish')
@@ -61,6 +62,21 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await panel.locator('summary').click()
     await expect(panel.getByTestId('qa-renderer-counts')).toHaveText('1 / 1')
     await expect(panel.getByTestId('qa-round-state')).toHaveText('ready')
+    await expectResponsive(page)
+
+    for (const viewport of [PORTRAIT, LANDSCAPE]) {
+      await page.setViewportSize(viewport)
+      await expect(page.locator('canvas')).toHaveCount(1)
+      const [canvasBox, panelBox] = await Promise.all([
+        page.locator('canvas').boundingBox(),
+        panel.boundingBox(),
+      ])
+      expect(canvasBox).not.toBeNull()
+      expect(panelBox).not.toBeNull()
+      expect(panelBox!.y).toBeGreaterThanOrEqual(canvasBox!.y + canvasBox!.height - 1)
+      await expectResponsive(page)
+    }
+    await page.setViewportSize(PORTRAIT)
 
     await startGenerationByTouch(page)
     await tapActor(page)

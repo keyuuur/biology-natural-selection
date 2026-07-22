@@ -1,5 +1,6 @@
 export type E2eControlEnvironment = {
   readonly DEV?: boolean
+  readonly VITE_E2E_CONTROLS?: string
   readonly VITE_INTERACTION_QA?: string
 }
 
@@ -10,13 +11,18 @@ function defaultSearch(): string {
 }
 
 /**
- * Production classroom builds must not honor URL test controls. A deliberately
- * built QA artifact can opt in with VITE_INTERACTION_QA=1; local Vite and
- * Playwright development runs stay enabled.
+ * Production classroom and facilitator-preview builds must not honor URL test
+ * controls. Local Vite/Playwright development runs stay enabled. An explicit
+ * VITE_E2E_CONTROLS build is reserved for non-public automation only.
  */
 export function isE2eControlBuild(
   environment: E2eControlEnvironment = import.meta.env,
 ): boolean {
+  return environment.DEV === true || environment.VITE_E2E_CONTROLS === '1'
+}
+
+/** A facilitator preview can expose aggregate diagnostics without test hooks. */
+function isFacilitatorQaBuild(environment: E2eControlEnvironment): boolean {
   return environment.DEV === true || environment.VITE_INTERACTION_QA === '1'
 }
 
@@ -42,14 +48,18 @@ export function interactionQaParams(
   return params?.get('qa') === '1' ? params : null
 }
 
-/** Preserve the existing diagnostics-bridge behavior in local development. */
+/**
+ * The raw test bridge is available only to local/explicit E2E builds. A public
+ * facilitator preview uses the in-page aggregate panel instead, so `?qa=1`
+ * never exposes actor locations, morphs, seeds, or test hooks to students.
+ */
 export function diagnosticsBridgeEnabled(
   search = defaultSearch(),
   environment: E2eControlEnvironment = import.meta.env,
 ): boolean {
   if (!isE2eControlBuild(environment)) return false
   const params = new URLSearchParams(search)
-  return params.get('qa') === '1' || params.get('e2e') === '1'
+  return params.get('qa') === '1'
 }
 
 /**
@@ -61,7 +71,7 @@ export function facilitatorQaPanelEnabled(
   search = defaultSearch(),
   environment: E2eControlEnvironment = import.meta.env,
 ): boolean {
-  if (!isE2eControlBuild(environment)) return false
+  if (!isFacilitatorQaBuild(environment)) return false
   return new URLSearchParams(search).get('qa') === '1'
 }
 

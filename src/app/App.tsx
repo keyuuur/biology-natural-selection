@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { CerScreen } from '../components/CerScreen.tsx'
 import { EvidenceScreen } from '../components/EvidenceScreen.tsx'
 import { GameHeader } from '../components/GameHeader.tsx'
@@ -86,8 +86,11 @@ export function App() {
   const game = useGameSession()
   const { session } = game
   const config = useMemo(e2eConfig, [])
+  const appShellRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   const previousStageRef = useRef(session.stage)
+  const draftResumeButtonRef = useRef<HTMLButtonElement>(null)
+  const restoreStudyFocusRef = useRef(false)
   const [draftCandidate, setDraftCandidate] = useState<SessionDraftEnvelope | null>(null)
   const [storageReady, setStorageReady] = useState(false)
   const [storageMessage, setStorageMessage] = useState(
@@ -153,6 +156,47 @@ export function App() {
     return () => window.cancelAnimationFrame(frame)
   }, [session.stage])
 
+  useEffect(() => {
+    if (!draftCandidate) return
+    const frame = window.requestAnimationFrame(() => {
+      draftResumeButtonRef.current?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [draftCandidate])
+
+  useEffect(() => {
+    const shell = appShellRef.current
+    if (!shell) return
+    const background = [...shell.children].filter((element) => (
+      !element.classList.contains('draft-backdrop') && element.getAttribute('aria-live') === null
+    ))
+    for (const element of background) {
+      if (draftCandidate) {
+        element.setAttribute('aria-hidden', 'true')
+        element.setAttribute('inert', '')
+      } else {
+        element.removeAttribute('aria-hidden')
+        element.removeAttribute('inert')
+      }
+    }
+    return () => {
+      for (const element of background) {
+        element.removeAttribute('aria-hidden')
+        element.removeAttribute('inert')
+      }
+    }
+  }, [draftCandidate])
+
+  useEffect(() => {
+    if (draftCandidate || !restoreStudyFocusRef.current) return
+    restoreStudyFocusRef.current = false
+    const frame = window.requestAnimationFrame(() => {
+      const heading = activeStageHeading(mainRef.current)
+      ;(heading ?? mainRef.current)?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [draftCandidate, session.stage])
+
   const timing = session.selectedTimingMode
     ? game.currentHabitat.timing[session.selectedTimingMode]
     : game.currentHabitat.timing.standard
@@ -204,10 +248,37 @@ export function App() {
   }
 
   function handleReplay() {
-    localResultSaver.clearDraft()
+    localResultSaver.clearStudyData()
     setDraftCandidate(null)
     setLiveMessage('A new field study is ready with a new placement seed.')
     game.replay()
+  }
+
+  function handleStudyBegin(...args: Parameters<typeof game.startStudy>) {
+    localResultSaver.clearStudyData()
+    game.startStudy(...args)
+  }
+
+  function restoreStudyFocusAfterDraft(): void {
+    restoreStudyFocusRef.current = true
+  }
+
+  function handleDraftDialogKeyDown(event: ReactKeyboardEvent<HTMLElement>): void {
+    if (event.key !== 'Tab') return
+    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )].filter((element) => !element.hasAttribute('hidden'))
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (!first || !last) return
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 
   function handleRoundComplete(metrics: Parameters<typeof game.completeRound>[0]) {
@@ -228,6 +299,7 @@ export function App() {
       className="app-shell"
       data-session-seed={session.seed}
       data-testid="app-shell"
+      ref={appShellRef}
     >
       <a className="skip-link" href="#main-content">Skip to field study</a>
       <GameHeader
@@ -245,6 +317,7 @@ export function App() {
             aria-modal="true"
             className="draft-recovery"
             data-testid="draft-recovery"
+            onKeyDown={handleDraftDialogKeyDown}
             role="dialog"
           >
             <p className="eyebrow">Saved on this device</p>
@@ -255,9 +328,11 @@ export function App() {
                 className="primary-button"
                 onClick={() => {
                   game.restore(draftCandidate.session)
+                  restoreStudyFocusAfterDraft()
                   setDraftCandidate(null)
                   setLiveMessage('Saved study resumed.')
                 }}
+                ref={draftResumeButtonRef}
                 type="button"
               >
                 Resume study
@@ -265,8 +340,10 @@ export function App() {
               <button
                 className="secondary-button"
                 onClick={() => {
-                  localResultSaver.clearDraft()
+                  localResultSaver.clearStudyData()
+                  restoreStudyFocusAfterDraft()
                   setDraftCandidate(null)
+                  setLiveMessage('A new field study is ready.')
                 }}
                 type="button"
               >
@@ -308,7 +385,7 @@ export function App() {
         )}
 
         {session.stage === 'mission' && (
-          <MissionScreen onBegin={game.startStudy} storageMessage={storageMessage} />
+          <MissionScreen onBegin={handleStudyBegin} storageMessage={storageMessage} />
         )}
 
         {session.stage === 'prediction' && (

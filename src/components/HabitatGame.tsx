@@ -62,6 +62,7 @@ type AcceptedCaptureTrace = {
 type InteractionController = PhaserSceneController & {
   setPauseReason?: (reason: PauseReason, active: boolean) => void
   getDiagnostics?: () => Record<string, unknown>
+  resetDiagnostics?: () => void
 }
 
 type InteractionQaBridge = {
@@ -228,6 +229,11 @@ export function HabitatGame(props: HabitatGameProps) {
     if (!showFacilitatorQaPanel) return
     setQaAggregate((current) => recordQaFeedbackLatency(current, latencyMs))
   }, [showFacilitatorQaPanel])
+
+  const resetFacilitatorQaSession = useCallback((): void => {
+    controllerRef.current?.resetDiagnostics()
+    setQaAggregate(emptyQaSessionAggregate())
+  }, [])
 
   useEffect(() => {
     if (!diagnosticsBridgeEnabled()) return
@@ -725,7 +731,7 @@ export function HabitatGame(props: HabitatGameProps) {
       {showFacilitatorQaPanel && (
         <FacilitatorQaPanel
           aggregate={qaAggregate}
-          onReset={() => setQaAggregate(emptyQaSessionAggregate())}
+          onReset={resetFacilitatorQaSession}
           readRendererSnapshot={readQaSnapshot}
         />
       )}

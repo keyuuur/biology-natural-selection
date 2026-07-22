@@ -6,8 +6,9 @@ replacement UI lands. They use semantic roles for student-visible actions and
 
 ## Test-only query contract
 
-The app should honor these parameters only when `e2e=1` and the build is running
-locally or under the Playwright test command:
+The app should honor these parameters only when `e2e=1` and the build is
+running locally, under the Playwright test command, or in an explicitly
+non-public `VITE_E2E_CONTROLS=1` automation artifact:
 
 - `e2eRoundMs`: shortens each generation timer without changing production timing.
 - `e2eSeed`: supplies the initial deterministic session seed.
@@ -15,15 +16,14 @@ locally or under the Playwright test command:
   `e2e=1` and `qa=1` and does not alter biology or movement seeds.
 - `e2eRenderer=fail`: forces the DOM observation fallback.
 - `e2eStorage=fail`: makes saver calls fail while keeping the study playable.
-- `qa=1`: exposes the network-free interaction diagnostics bridge in development
-  or a build created with `VITE_INTERACTION_QA=1`. In an explicitly QA-enabled
-  build, `?qa=1` also exposes the closed facilitator diagnostics panel; it does
-  not require `e2e=1` and must not activate any timer, seed, storage, or
-  renderer override by itself.
+- `qa=1`: exposes the raw interaction diagnostics bridge only in a local or
+  explicit E2E-control build. In a facilitator preview created with
+  `VITE_INTERACTION_QA=1`, `?qa=1` instead exposes only the closed aggregate
+  facilitator panel; it does not require `e2e=1` and must not activate any
+  timer, seed, storage, renderer, or bridge override by itself.
 
-Production sessions must ignore these controls unless the artifact was
-deliberately built with `VITE_INTERACTION_QA=1`. Replay must replace the
-supplied initial seed with a fresh seed.
+Production and facilitator-preview sessions must ignore E2E controls. Replay
+must replace the supplied initial seed with a fresh seed.
 
 ## Interaction QA bridge
 
@@ -37,10 +37,13 @@ in-memory only and contains no identity or assessment responses.
 The visible `facilitator-qa-panel` is separate from the bridge. It is an
 in-flow, closed-by-default facilitator aid below the active field. It shows
 only resettable aggregate caught/miss/protected counts, numeric callback-latency
-samples, and current renderer counts/performance. It never renders actor IDs,
-traits, positions, seed values, predictions, answers, CER text, names, or
-network data. Students use the plain preview URL; facilitators alone use
-`?qa=1` during Gate 1 and press Reset before each technical session.
+samples, and current renderer counts/performance. Its reset begins a fresh
+facilitator measurement window without changing live population, timer, HUD, or
+assessment state. It never renders actor IDs, traits, positions, seed values,
+predictions, answers, CER text, names, or network data. A QA preview does not
+publish the raw bridge at all. Students use the plain preview URL; facilitators
+alone use `?qa=1` during Gate 1 and reset session data before each technical
+session.
 
 Chromium runs the ordinary browser suite; manual challenge-baseline cases and
 opt-in capture/soak cases are skipped unless their environment flag is set. The
@@ -89,7 +92,8 @@ baseline records. Grouped or partial artifacts are exploratory diagnostics.
 - Fallback: `dom-observation-fallback`.
 - Facilitator-only QA: `facilitator-qa-panel`, `qa-reset`,
   `qa-caught-count`, `qa-miss-count`, `qa-protected-count`,
-  `qa-latency-count`, `qa-renderer-counts`, and `qa-duplicate-ends`.
+  `qa-latency-count`, `qa-renderer-counts`, `qa-frame-sample-count`, and
+  `qa-duplicate-ends`.
 
 The Playwright output directory, HTML report, and generated screenshots should be
 ignored by Git. The selected release screenshots are written under

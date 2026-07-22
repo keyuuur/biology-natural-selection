@@ -60,6 +60,7 @@ function fakeController(): PhaserSceneController {
     confirmCapture: vi.fn(),
     showEscape: vi.fn(),
     finishRound: vi.fn(),
+    resetDiagnostics: vi.fn(),
     dispose: vi.fn(),
   } as unknown as PhaserSceneController
 }
@@ -148,8 +149,15 @@ describe('HabitatGame facilitator diagnostics', () => {
   it('shows a query-gated aggregate without changing round metrics when reset', async () => {
     window.history.replaceState({}, '', '?qa=1')
     const controller = fakeController()
+    let rendererMetrics = {
+      averageFps: 60,
+      p95FrameTimeMs: 17,
+      framesOver50Ms: 1,
+      sampledFrames: 18,
+    }
     const diagnosticsController = controller as unknown as {
       getDiagnostics: () => Record<string, unknown>
+      resetDiagnostics: () => void
     }
     diagnosticsController.getDiagnostics = () => ({
       controllerCount: 1,
@@ -157,7 +165,15 @@ describe('HabitatGame facilitator diagnostics', () => {
       actorCount: 40,
       duplicateRoundEndCount: 0,
       pauseReasons: [],
-      frameMetrics: { averageFps: 60, p95FrameTimeMs: 17, framesOver50Ms: 0 },
+      frameMetrics: rendererMetrics,
+    })
+    diagnosticsController.resetDiagnostics = vi.fn(() => {
+      rendererMetrics = {
+        averageFps: 0,
+        p95FrameTimeMs: 0,
+        framesOver50Ms: 0,
+        sampledFrames: 0,
+      }
     })
     let events: PhaserControllerEvents | null = null
     loadController.mockImplementation(async (_host, nextEvents) => {
@@ -192,15 +208,20 @@ describe('HabitatGame facilitator diagnostics', () => {
     expect(screen.getByTestId('qa-caught-count').textContent).toContain('1')
     expect(screen.getByTestId('qa-miss-count').textContent).toContain('1')
     expect(screen.getByTestId('qa-latency-count').textContent).toContain('2')
+    await waitFor(() => {
+      expect(screen.getByTestId('qa-frame-sample-count').textContent).toContain('18')
+    })
     const roundHud = screen.getByLabelText('Round progress')
     expect(roundHud.textContent).toMatch(/caught\s*1 of 12/i)
     expect(roundHud.textContent).toMatch(/misses\s*1.*no penalty/i)
 
     fireEvent.click(screen.getByTestId('qa-reset'))
 
+    expect(diagnosticsController.resetDiagnostics).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('qa-caught-count').textContent).toContain('0')
     expect(screen.getByTestId('qa-miss-count').textContent).toContain('0')
     expect(screen.getByTestId('qa-latency-count').textContent).toContain('0')
+    expect(screen.getByTestId('qa-frame-sample-count').textContent).toContain('0')
     expect(roundHud.textContent).toMatch(/caught\s*1 of 12/i)
     expect(roundHud.textContent).toMatch(/misses\s*1.*no penalty/i)
   })
