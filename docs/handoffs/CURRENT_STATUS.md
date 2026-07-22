@@ -2,60 +2,113 @@
 
 Last verified locally and on preview: 2026-07-22
 
-## Current release candidate
+## Current candidate
 
-- Branch: `codex/s1-completion-recovery`, tracking `origin/codex/s1-completion-recovery`. The worktree was clean and local/upstream SHA matched at the release checkpoint; run `git rev-parse HEAD` before resuming to identify the self-updating documentation checkpoint exactly.
-- Preview runtime source: `e0b10fb460e50685e08f03de5e224994c3691640` (`fix: add field lab favicon`), following `84b9ce1` (`feat: complete inclusive study route and challenge remediation`). The current head is documentation-only and does not alter the preview runtime.
-- The source-only feature work is published. `.playwright-cli/` and `output/` are ignored generated browser artifacts; do not stage them. `AGENTS.md` and `KEYUR_WORKFLOW.md` remain unchanged.
-- The current approved test candidate is the Vercel **preview**: `https://biology-natural-selection-r14paktmg-keyur159263-5904s-projects.vercel.app`.
-  - Deployment: `dpl_59WPaDLKhgXh7VGaes7gtbN9ChP7`, Ready, created 2026-07-22 14:28 CDT.
-  - It was manually built from `e0b10fb` with `VITE_INTERACTION_QA=1` so facilitators can opt into memory-only diagnostics with `?qa=1`.
-  - Production was not deployed or changed. Do not use earlier Vercel previews for device or pilot testing.
+- Branch: `codex/s1-completion-recovery`, tracking
+  `origin/codex/s1-completion-recovery`.
+- Tested runtime source: `23ba90e` (`feat: add facilitator pilot diagnostics`).
+  The branch was pushed before the preview was created.
+- Current QA-enabled Vercel **preview**:
+  `https://biology-natural-selection-qnpoevh8w-keyur159263-5904s-projects.vercel.app`
+  - Deployment: `dpl_8mSKKrjfY23der7tUKfKW1Hvm5RK`, Ready.
+  - Created 2026-07-22 15:27 CDT from `23ba90e` with
+    `VITE_INTERACTION_QA=1`.
+  - This is the sole candidate for Gate 1 and Gate 2. Do not use earlier
+    previews for device or pilot work.
+- Production was not deployed or changed.
+- `.playwright-cli/`, `output/`, and browser-test artifacts are ignored; do not
+  stage them. `AGENTS.md` and `KEYUR_WORKFLOW.md` remain unchanged.
 
-## Completed product work
+## What changed at this checkpoint
 
-- The canonical product is the ninth-grade fish-and-moth predator/camouflage study, not the older deer prototype.
-- Mission offers a student-selected Predator or no-canvas Observation study. Observation reaches the same predictions, graphs, checks, evidence selection, and CER endpoint, but has no predator score.
-- Mission, Evidence, and CER use the sticky in-flow action dock; iPad portrait Evidence uses readable three-then-two checkpoint grouping and avoids nested vertical scrolling.
-- Student-facing labels stay habitat-specific: reef `reef-matched pattern` / `high-contrast pattern`; bark `mottled bark pattern` / `solid light pattern`.
-- Reef fish use deterministic morph-neutral placement and motion, muted reef-adjacent palettes, shared dark eyes, and pattern/texture rather than a bright trait cue. Biology, 62x30 fish size, 72x48 standard hit areas, 25/40-second timing, scoring, and privacy boundaries remain unchanged.
-- The final minor validation repair added an original local SVG favicon; it removes the only observed console 404 and adds no external asset or package.
+- Added a closed, in-flow **Facilitator diagnostics** panel. It appears only in
+  a QA-enabled build with `?qa=1`, below the live field, and never covers prey.
+  Students use the plain preview URL.
+- The panel reports resettable in-memory aggregate catches, misses, protected
+  attempts, callback-latency samples, and current renderer lifecycle/frame
+  facts. Reset changes only those facilitator counters.
+- It does not save, send, or render student identity, predictions, answers, CER
+  text, raw organism IDs, traits, or coordinates.
+- The renderer now emits a bounded numeric callback-latency event for accepted,
+  miss, and protected interactions. This measures Phaser input handling to
+  feedback creation, not physical touch-to-photon latency.
+- Rewrote `INTERACTION_PILOT.md` with exact Gate 1 measurements, Gate 2 A-H
+  assignment, neutral help language, privacy controls, exit-prompt coding, and
+  evidence-driven tuning rules. Biology, gameplay, scoring, timing, hit areas,
+  persistence, and result schema are unchanged.
 
-## Verified local evidence
+## Verified evidence
 
-- `npm run check` passed after the final favicon commit: lint completed with the three existing non-failing `HabitatGame.tsx` hook-dependency warnings; Vitest passed **98/98** tests; and the production build passed.
-  - Initial JavaScript: **87.95 KB gzip**.
-  - Lazy Phaser chunk: **366.23 KB gzip**. The existing large-chunk advisory is deferred unless device evidence shows classroom impact.
-- Prior full local browser evidence remains valid for the unchanged game code: Chromium file-by-file **24 passed, 59 intentionally skipped** (three science journeys, S1 remediation, study routes, release screenshots, and direct interaction); WebKit iPad-profile study routes **7/7** plus real lazy-import fallback **1/1**; earlier full WebKit interaction **11/11**; renderer soak **2/2**.
-- The local challenge baseline covers 12 isolated placement seeds at four target viewports: 48 fields / 192 time snapshots, correct 20/20 representation, zero eligible hit-region overlap, desktop minimum 45.87 FPS, and maximum p95 frame time 25 ms. These are construction and desktop diagnostics only, not a claim about student challenge or physical-iPad performance.
-- Current local release screenshots are under `test-results/release-screenshots/`. Do not use generated browser folders as commit input.
+### Local
 
-## Verified preview evidence
+- `npm run check`: passed.
+  - Vitest: **105/105** tests passed.
+  - Production build passed.
+  - Base JavaScript: **89.27 KB gzip**; lazy Phaser: **366.30 KB gzip**.
+  - The three existing non-failing `HabitatGame.tsx` hook-dependency warnings
+    remain; this checkpoint added no new lint warnings.
+- Focused Chromium direct-touch browser test passed:
+  `facilitator diagnostics are opt-in and reset without changing play`.
+  It verified no panel on the ordinary test route; the opt-in panel, real touch
+  capture, blank-canvas miss, live one-controller/one-canvas data, and reset
+  without changing game HUD counts.
+- Prior broad game, WebKit, fallback, and challenge-baseline evidence remains
+  valid because the classroom mechanics did not change. It is not a substitute
+  for physical iPad/Safari or student-pilot evidence.
 
-- The exact candidate preview and `/favicon.svg` returned HTTP 200. The ordinary preview URL had no console errors, no QA bridge or visible test controls, no canvas before a Predator round begins, and only same-origin static requests.
-- Browser local storage contained only `natural-selection:v2:session-draft`; no identity or network submission was observed. Reload showed the expected `Resume your field study?` recovery dialog with no console errors.
-- Portrait (`768x1024`) and landscape (`1024x768`) mission layouts rendered without horizontal overflow.
-- On `?qa=1` only, a normal Standard Predator path reached a live Reef Generation 1 round. One real touch-style actor catch and one blank-canvas miss produced `Caught 1 of 12`, `Misses 1 - no penalty`, one canvas/controller, zero duplicate round ends, and 2.8 ms sampled input-to-feedback latency. The sampled desktop browser renderer measured 57.9 FPS with 20.01 ms p95 frames; this is not a target-iPad claim.
-- The same final preview reached the student-selected Observation Reef Generation 1 start with **zero canvases** and explicit same-endpoint/no-predator-score wording.
-- Ignored preview screenshots: `output/playwright/preview-final-mission-portrait.png`, `preview-final-reef-catch-miss-portrait.png`, `preview-final-mission-landscape.png`, and `preview-final-observation.png`.
+### Preview
+
+- `vercel inspect` reports the exact preview Ready.
+- Plain preview Mission route rendered with no facilitator panel or visible QA
+  control.
+- On the facilitator URL only, a normal Predator path reached Reef Generation
+  1 and exposed the panel. During live play it reported: running state, one
+  controller/canvas, 40 actors, 60.0 average FPS, 16.7 ms frame p95, zero long
+  frames, zero duplicate ends, and no pause reason in this desktop browser.
+  These are desktop diagnostics, not physical-iPad claims.
+- QA-preview browser console: **0 errors / 0 warnings**. Its request list had
+  no non-static requests. No network submission was introduced.
+- Ignored local screenshots from this exact preview:
+  - `.playwright-cli/page-2026-07-22T20-32-40-530Z.png` (open facilitator
+    panel, ready state)
+  - `.playwright-cli/page-2026-07-22T20-34-06-743Z.png` (live reef field)
 
 ## Locked boundaries
 
-- Preserve population totals, selection weights, inherited traits, hit areas, organism size, 25/40-second timing, scoring separation, result schema, local-only storage, and the absence of names, periods, accounts, analytics, cookies, or network submissions.
-- Do not make speculative visual-challenge, speed, topology, biology, or scoring changes before real Gate 1/2 evidence.
-- Do not deploy to production without Keyur's separate explicit approval after all relevant gates pass.
+- Preserve population totals, selection weights, inherited traits, hit areas,
+  organism size, 25/40-second timing, scoring separation, result schema,
+  local-only storage, and the absence of names, periods, accounts, analytics,
+  cookies, or network submissions.
+- Do not make speculative visual-challenge, speed, topology, biology, or
+  scoring changes before real Gate 1 and Gate 2 evidence.
+- Do not deploy to production without Keyur's separate explicit approval after
+  the relevant gates pass.
 
-## Remaining gates
+## Remaining work before completion
 
-1. **Gate 1 - target iPad/Safari/school Wi-Fi:** use the sole candidate preview and complete the three sessions, VoiceOver check, and Observation check in `docs/handoffs/INTERACTION_PILOT.md`. Any touch, timer, rotation, pause, crash, slowdown, clipping, or accessibility failure blocks the student pilot.
-2. **Gate 2 - anonymous eight-student pilot:** use codes A-H only (six Standard, two Extended, and one Observation replay). Record only the anonymous metrics and outcome codes in `docs/handoffs/INTERACTION_PILOT.md`.
-3. **Gate 3 - one bounded correction if evidence requires it:** create `codex/pilot-tuning` from `e0b10fb`; correct only one category (reliability/accessibility, topology, visual treatment, UX, or science scaffolding), then rerun affected local tests, preview, and necessary external checks.
-4. **Production gate:** only Keyur can approve promotion after reviewing the preview and the completed gate evidence.
+1. **Gate 1 - target iPad/Safari/school Wi-Fi.** Use the current preview and
+   complete the three sessions, VoiceOver check, and Observation check in
+   `docs/handoffs/INTERACTION_PILOT.md`. A touch, timer, rotation, pause,
+   crash, slowdown, clipping, or accessibility failure blocks the student
+   pilot.
+2. **Gate 2 - anonymous eight-student pilot.** Use A-H only: six Standard,
+   two Extended, and one separate Observation replay. Record only the
+   prescribed anonymous measurements and outcome codes.
+3. **Gate 3 - one bounded evidence-driven correction, only if needed.** Create
+   `codex/pilot-tuning` from `23ba90e`; correct one category only, then rerun
+   affected local checks, preview verification, and necessary external gates.
+4. **Production gate.** Keyur must separately approve promotion after reviewing
+   completed gate evidence.
 
 ## Safe resume actions
 
-1. Open `https://biology-natural-selection-r14paktmg-keyur159263-5904s-projects.vercel.app` on the target iPad and school Wi-Fi. Use `?qa=1` only for facilitator diagnostics; do not give that URL to students, who must use the plain URL.
-2. Run Gate 1 exactly as written, record only anonymous observations, and stop before Gate 2 if a Gate 1 blocker occurs.
-3. Run the anonymous eight-student protocol only after Gate 1 passes. Do not change the game between primary pilot sessions.
-4. If evidence triggers a correction, branch from `e0b10fb`, make one bounded change, and update this handoff with exact new test/preview/device evidence.
+1. Confirm `git status --short --branch` is clean and the branch points to the
+   current documentation checkpoint; keep the tested runtime SHA `23ba90e`
+   recorded as the preview source.
+2. On the target iPad and school Wi-Fi, open the plain preview URL for students
+   and append `?qa=1` only on the facilitator device.
+3. Press **Reset facilitator counters** before each Gate 1 session, then follow
+   the exact measurement definitions in `INTERACTION_PILOT.md`.
+4. Stop before Gate 2 if Gate 1 has a blocker. Do not modify the game between
+   primary pilot sessions.
 5. Ask Keyur before any production deployment.
