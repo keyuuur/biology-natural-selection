@@ -38,6 +38,10 @@ Last verified locally and on preview: 2026-07-22 (CDT)
   Resume, makes the background inert/hidden from assistive technology, wraps
   Tab within its choices, and returns focus to the active stage heading after
   Resume or Start over.
+- **Pilot instrument completeness:** the facilitator protocol now specifies an
+  exact VoiceOver Observation smoke path and separately records whether a
+  student understands that misses and predator points do not determine science
+  completion. It retains only the prescribed anonymous outcome codes.
 - Added Chromium/WebKit checks for the facilitator panel, focused draft
   recovery, shared-device result clearing, portrait/landscape panel placement,
   and resettable renderer samples. Biology, gameplay, scoring, timing, hit
@@ -90,6 +94,9 @@ Last verified locally and on preview: 2026-07-22 (CDT)
 - Ignored local screenshot from this exact preview:
   `.playwright-cli/page-2026-07-22T21-20-23-815Z.png` (open facilitator
   diagnostics below the ready Reef field).
+- A final read-only release audit found no further local code, accessibility,
+  privacy, QA, or pilot-readiness blocker. The remaining acceptance evidence
+  must come from the physical-iPad and anonymous-student gates below.
 
 ## Locked boundaries
 
@@ -127,7 +134,8 @@ Last verified locally and on preview: 2026-07-22 (CDT)
    The facilitator alone appends `?qa=1` for technical measurement.
 3. Open **Facilitator diagnostics**, press **Reset facilitator session data**,
    then close the panel before each Gate 1 session. Use the exact measurement
-   definitions in `INTERACTION_PILOT.md`.
+   definitions in `INTERACTION_PILOT.md`, including its VoiceOver Observation
+   smoke path.
 4. Stop before Gate 2 if Gate 1 has a blocker. Do not modify the game between
    primary pilot sessions.
 5. Ask Keyur before any production deployment.

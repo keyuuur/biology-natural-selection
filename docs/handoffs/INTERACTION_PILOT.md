@@ -52,9 +52,13 @@ the physical device.
 
 Then perform two short route checks, separate from the three primary sessions:
 
-- **VoiceOver:** verify the study-route choice, one current action, the
-  Observation round, and Results are understandable without duplicate status
-  announcements.
+- **VoiceOver (exact smoke path):** on the plain preview URL, turn on
+  VoiceOver and choose **Observation** from Mission. Confirm that the selected
+  study route and one current action are announced once, complete one reef
+  Observation generation, then reach Results. The student must be able to
+  identify the current action and understand that predator performance was not
+  part of this study. Record only pass/block and whether a duplicate status
+  announcement, lost focus, or unclear control prevented the path.
 - **Observation:** select Observation deliberately, resolve a reef round with
   no canvas, and verify Results says predator performance was not part of the
   study while the science pathway still reaches predictions, graphs, checks,
@@ -100,7 +104,8 @@ Also confirm:
 - [ ] Rotation remaps actors inside the canvas and a post-rotation target can be tapped.
 - [ ] Hidden time is not deducted and return requires Resume.
 - [ ] Replay does not create another controller, canvas, or renderer reload.
-- [ ] VoiceOver path works without duplicate status messages.
+- [ ] VoiceOver Observation path reaches Results, announces the current action
+      once, and has no duplicate status message, lost focus, or unclear control.
 - [ ] Observation path completes without a canvas or predator score.
 
 ### Gate 1 decision
@@ -221,6 +226,9 @@ Ask these prompts verbally. Record only `clear`, `clear after feedback`, or
 4. **Changed background:** “If the background changed, would any individual
    moth need to change? What could change in the next generations, and why?”
 
+5. **Science completion:** Do misses or predator points affect whether the
+   science study is complete? Why or why not?
+
 If a student uses intentional-individual-change language, give this one
 correction, then re-ask the relevant prompt:
 
@@ -234,16 +242,24 @@ offspring, and population percentage/composition changing while total population
 size stays fixed. `Clear after feedback` requires the same model after the
 documented neutral correction; otherwise use `not yet clear`.
 
-| Code | Population change | Individual change | Fitness | Changed background | Combined causal model |
-| --- | --- | --- | --- | --- | --- |
-| A | | | | | |
-| B | | | | | |
-| C | | | | | |
-| D | | | | | |
-| E | | | | | |
-| F | | | | | |
-| G | | | | | |
-| H | | | | | |
+For **Science completion**, code **clear** only when the student recognizes
+that misses and predator points describe predator play, while the science study
+is completed through its prediction, evidence, checks, and CER path. If needed,
+give this neutral correction and re-ask the prompt:
+
+> Misses and predator points describe the predator activity. They do not lower
+> or decide whether the science study is complete.
+
+| Code | Population change | Individual change | Fitness | Changed background | Science completion | Combined causal model |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | | | | | | |
+| B | | | | | | |
+| C | | | | | | |
+| D | | | | | | |
+| E | | | | | | |
+| F | | | | | | |
+| G | | | | | | |
+| H | | | | | | |
 
 ### Gate 2 decision rules
 
