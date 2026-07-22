@@ -12,11 +12,12 @@ import {
   type PredictionResponse,
   type SelectedTimingMode,
 } from '../simulation/index.ts'
-import type { CerDraft, GameSession } from './sessionTypes.ts'
+import type { CerDraft, GameSession, StudyRoute } from './sessionTypes.ts'
 
 export type SessionAction =
   | { type: 'BEGIN' }
   | { type: 'SELECT_TIMING'; timingMode: SelectedTimingMode }
+  | { type: 'START_STUDY'; studyRoute: StudyRoute; timingMode?: SelectedTimingMode }
   | { type: 'START_PREDICTION' }
   | { type: 'SUBMIT_PREDICTION'; habitatId: HabitatId; prediction: PredictionResponse }
   | { type: 'ROUND_COMPLETED'; habitatId: HabitatId; metrics: PlayerRoundMetrics }
@@ -49,6 +50,7 @@ export function createFreshSession(seed = randomSeed()): GameSession {
     seed,
     startedAt: new Date().toISOString(),
     stage: 'mission',
+    studyRoute: null,
     selectedTimingMode: null,
     currentHabitatId: 'reef_fish',
     habitats: {
@@ -92,8 +94,30 @@ export function sessionReducer(session: GameSession, action: SessionAction): Gam
       return session.stage === 'mission' ? { ...session, stage: 'timing' } : session
     case 'SELECT_TIMING':
       return session.stage === 'mission' || session.stage === 'timing'
-        ? { ...session, selectedTimingMode: action.timingMode, stage: 'prediction' }
+        ? {
+            ...session,
+            studyRoute: 'predator',
+            selectedTimingMode: action.timingMode,
+            stage: 'prediction',
+          }
         : session
+    case 'START_STUDY':
+      if (session.stage !== 'mission') return session
+      if (action.studyRoute === 'predator') {
+        if (!action.timingMode) return session
+        return {
+          ...session,
+          studyRoute: 'predator',
+          selectedTimingMode: action.timingMode,
+          stage: 'prediction',
+        }
+      }
+      return {
+        ...session,
+        studyRoute: 'observation',
+        selectedTimingMode: 'standard',
+        stage: 'prediction',
+      }
     case 'START_PREDICTION':
       return session.stage === 'habitat_intro' ? { ...session, stage: 'prediction' } : session
     case 'SUBMIT_PREDICTION':

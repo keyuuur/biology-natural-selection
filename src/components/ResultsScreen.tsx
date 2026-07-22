@@ -1,4 +1,3 @@
-import { HABITAT_STUDENT_COPY } from '../learning/index.ts'
 import type {
   HabitatId,
   NaturalSelectionResult,
@@ -14,12 +13,17 @@ type ResultsScreenProps = {
   onReplay: () => void
 }
 
-function usedObservationFallback(result: NaturalSelectionResult) {
-  return (['reef_fish', 'bark_moths'] as const).some((habitatId) =>
-    result.habitats[habitatId].generations.some(
-      (generation) => generation.inputMode === 'observation' || generation.fallbackUsed,
-    ),
+type StudyPresentation = 'predator' | 'observation' | 'renderer_failure'
+
+function classifyStudyPresentation(result: NaturalSelectionResult): StudyPresentation {
+  const generations = (['reef_fish', 'bark_moths'] as const).flatMap(
+    (habitatId) => result.habitats[habitatId].generations,
   )
+  if (generations.some((generation) => generation.fallbackUsed)) return 'renderer_failure'
+  if (generations.length > 0 && generations.every((generation) => generation.inputMode === 'observation')) {
+    return 'observation'
+  }
+  return 'predator'
 }
 
 function timingLabel(mode: NaturalSelectionResult['selectedTimingMode']) {
@@ -32,7 +36,7 @@ export function ResultsScreen({
   storageMessage,
   onReplay,
 }: ResultsScreenProps) {
-  const observationFallback = usedObservationFallback(result)
+  const presentation = classifyStudyPresentation(result)
   const scienceComplete =
     result.scienceCompletion.evidenceComplete && result.scienceCompletion.cerComplete
 
@@ -46,13 +50,22 @@ export function ResultsScreen({
         <section className="result-section" aria-labelledby="predator-performance-title">
           <p className="eyebrow">Gameplay result</p>
           <h3 id="predator-performance-title">Predator Performance</h3>
-          <p data-testid="timing-mode-result">{timingLabel(result.selectedTimingMode)}</p>
-          {observationFallback ? (
+          <p data-testid="timing-mode-result">
+            {presentation === 'observation' ? 'Observation study' : timingLabel(result.selectedTimingMode)}
+          </p>
+          {presentation === 'observation' ? (
             <div className="feedback-box" data-testid="predator-score-unavailable">
-              <strong>Predator score not available in observation mode.</strong>
+              <strong>Predator performance was not part of your Observation study.</strong>
               <p>
-                The graphics fallback completed predation automatically. Your science evidence
-                and CER are still complete.
+                You completed the same science evidence and field report without a predator score.
+              </p>
+            </div>
+          ) : presentation === 'renderer_failure' ? (
+            <div className="feedback-box" data-testid="predator-score-unavailable">
+              <strong>Predator performance is unavailable because graphics could not load.</strong>
+              <p>
+                Observation mode completed predation automatically. Your science evidence and CER
+                are still complete.
               </p>
             </div>
           ) : (
@@ -92,7 +105,7 @@ export function ResultsScreen({
           <p className="model-note">Your free-text reasoning was saved but was not automatically graded.</p>
         </section>
 
-        {storageMessage && <p className="storage-status" role="status">{storageMessage}</p>}
+        {storageMessage && <p className="storage-status">{storageMessage}</p>}
 
         <button
           className="secondary-button secondary-button--full"
@@ -107,13 +120,11 @@ export function ResultsScreen({
       <div className="results-graphs">
         <PopulationGraph
           habitatId="reef_fish"
-          organismLabel={HABITAT_STUDENT_COPY.reef_fish.organismLabel}
           points={graphPoints.reef_fish}
           title="Reef fish population evidence"
         />
         <PopulationGraph
           habitatId="bark_moths"
-          organismLabel={HABITAT_STUDENT_COPY.bark_moths.organismLabel}
           points={graphPoints.bark_moths}
           title="Bark moth population evidence"
         />

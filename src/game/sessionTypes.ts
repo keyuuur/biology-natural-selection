@@ -22,6 +22,12 @@ export type GameStage =
   | 'cer'
   | 'results'
 
+/**
+ * The selected way a student gathers predation evidence for this study.
+ * Observation is a complete science route, not a renderer-failure state.
+ */
+export type StudyRoute = 'predator' | 'observation'
+
 export type HabitatProgress = {
   simulation: SimulationState
 }
@@ -56,6 +62,7 @@ export type GameSession = {
   seed: number
   startedAt: string
   stage: GameStage
+  studyRoute: StudyRoute | null
   selectedTimingMode: SelectedTimingMode | null
   currentHabitatId: HabitatId
   habitats: Readonly<Record<HabitatId, HabitatProgress>>
@@ -68,12 +75,19 @@ export type GameSession = {
   completedResult: NaturalSelectionResult | null
 }
 
-export const SESSION_DRAFT_SCHEMA_VERSION = '2.0' as const
+export const SESSION_DRAFT_SCHEMA_VERSION = '2.1' as const
+export const LEGACY_SESSION_DRAFT_SCHEMA_VERSION = '2.0' as const
 
 export type SessionDraftEnvelope = {
   schemaVersion: typeof SESSION_DRAFT_SCHEMA_VERSION
   savedAt: string
   session: GameSession
+}
+
+export type LegacySessionDraftEnvelope = {
+  schemaVersion: typeof LEGACY_SESSION_DRAFT_SCHEMA_VERSION
+  savedAt: string
+  session: Omit<GameSession, 'studyRoute'>
 }
 
 export type DraftLoadResult =

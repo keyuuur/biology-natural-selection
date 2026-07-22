@@ -88,7 +88,7 @@ function MisconceptionQuestion({
           <div
             className={`feedback-box ${correct ? 'feedback-box--correct' : 'feedback-box--retry'}`}
             data-testid="answer-feedback"
-            role={correct ? 'status' : 'alert'}
+            role={correct ? undefined : 'alert'}
           >
             <strong>{correct ? 'Correct.' : 'Not quite. Try again.'}</strong>
             <p>{checkedChoice.feedback}</p>

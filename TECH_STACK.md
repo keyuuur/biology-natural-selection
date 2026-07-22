@@ -20,9 +20,9 @@ Phaser is lazy-loaded after the mission screen. React retains one renderer contr
 
 React owns:
 
-- mission, timing, predictions, progression, graphs, evidence, questions, CER, and results;
+- study-route choice, mission, timing, predictions, progression, graphs, evidence, questions, CER, and results;
 - all session and learning state;
-- local persistence, draft recovery, error messages, and the observation fallback;
+- local persistence, draft recovery, error messages, the student-selected Observation route, and the distinct renderer-failure fallback;
 - accessibility and responsive layout.
 
 Phaser owns:

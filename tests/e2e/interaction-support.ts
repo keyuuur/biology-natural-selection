@@ -27,11 +27,18 @@ export type QaActorTarget = {
   profileId: string
   assignedSpeedPxPerSecond: number
   patrolSpanPx: number
+  distanceTraveledPx: number
+  boundaryTurns: number
+  collisionTurns: number
+  blockedMs: number
   maxContinuousBlockedMs: number
 }
 
 export type InteractionQaSnapshot = {
   roundState: 'loading' | 'ready' | 'running' | 'paused' | 'resolving' | 'fallback'
+  roundId: string | null
+  placementSeed: number | null
+  movementSeed: number | null
   actors: QaActorTarget[]
   controllerCount: number
   createdControllerCount: number
@@ -57,8 +64,16 @@ export type InteractionQaSnapshot = {
   }
   duplicateRoundEndCount: number
   manualCatches: number
+  manualCatchesByMorph: { camouflaged: number; conspicuous: number }
   misses: number
   protectedAttempts: number
+  firstAcceptedCatchElapsedMs: number | null
+  acceptedCaptureTrace: Array<{
+    organismId: string
+    morphId: QaActorTarget['morphId']
+    elapsedMs: number
+  }>
+  roundElapsedMs: number
 }
 
 type QaWindow = Window & {
@@ -85,6 +100,11 @@ export async function waitForQaState(
       return bridge?.snapshot().roundState ?? null
     }), {
       message: `waiting for QA round state ${state}`,
+      // Phaser's first paint occasionally arrives just after the default
+      // assertion window when a long one-worker suite is already exercising
+      // WebKit and full-density scenes. The renderer itself still has its
+      // separate 10-second failure watchdog; this only avoids a test race.
+      timeout: 30_000,
     })
     .toBe(state)
   return qaSnapshot(page)

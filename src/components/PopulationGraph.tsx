@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { HABITAT_STUDENT_COPY } from '../learning/index.ts'
 import type { HabitatId } from '../simulation/index.ts'
 
 export type PopulationGraphPoint = {
@@ -8,9 +9,8 @@ export type PopulationGraphPoint = {
 }
 
 type PopulationGraphProps = {
-  habitatId?: HabitatId
+  habitatId: HabitatId
   title: string
-  organismLabel: string
   points: readonly PopulationGraphPoint[]
   selectedGenerations?: ReadonlySet<number>
   onToggleGeneration?: (generation: number) => void
@@ -54,7 +54,6 @@ function displayPercent(value: number): string {
 export function PopulationGraph({
   habitatId,
   title,
-  organismLabel,
   points,
   selectedGenerations = new Set<number>(),
   onToggleGeneration,
@@ -63,12 +62,14 @@ export function PopulationGraph({
   const titleId = useId()
   const descriptionId = useId()
   const maxGeneration = Math.max(3, ...points.map((point) => point.generation))
+  const copy = HABITAT_STUDENT_COPY[habitatId]
+  const { camouflaged: camouflagedLabel, conspicuous: conspicuousLabel } = copy.morphLabels
 
   return (
     <section
       className="graph-card"
       aria-labelledby={titleId}
-      data-testid={habitatId ? `population-graph-${habitatId}` : undefined}
+      data-testid={`population-graph-${habitatId}`}
     >
       <div className="graph-card__heading">
         <div>
@@ -76,8 +77,8 @@ export function PopulationGraph({
           <h3 id={titleId}>{title}</h3>
         </div>
         <div className="graph-legend" aria-label="Graph legend">
-          <span><i className="legend-line legend-line--camo" />Mottled pattern</span>
-          <span><i className="legend-line legend-line--obvious" />Solid pattern</span>
+          <span><i className="legend-line legend-line--camo" />{camouflagedLabel}</span>
+          <span><i className="legend-line legend-line--obvious" />{conspicuousLabel}</span>
         </div>
       </div>
 
@@ -89,8 +90,8 @@ export function PopulationGraph({
           aria-labelledby={`${titleId} ${descriptionId}`}
         >
           <desc id={descriptionId}>
-            Line graph showing the percentage of mottled-pattern and solid-pattern {organismLabel}
-            from Generation 0 through Generation {maxGeneration}.
+            Line graph showing the percentage of {copy.organismLabel} with the {camouflagedLabel}{' '}
+            and the {conspicuousLabel} from Generation 0 through Generation {maxGeneration}.
           </desc>
           {[0, 25, 50, 75, 100].map((value) => {
             const { y } = pointCoordinates(0, value, maxGeneration)
@@ -144,6 +145,7 @@ export function PopulationGraph({
               const selected = selectedGenerations.has(point.generation)
               return (
                 <button
+                  aria-label={`Generation ${point.generation}: ${displayPercent(point.percentages.camouflaged)}% ${camouflagedLabel}; ${displayPercent(point.percentages.conspicuous)}% ${conspicuousLabel}`}
                   aria-pressed={selected}
                   className={`generation-chip${selected ? ' is-selected' : ''}`}
                   key={point.generation}
@@ -160,13 +162,13 @@ export function PopulationGraph({
       )}
 
       <div className="graph-table-scroll">
-        <table data-testid={habitatId ? `population-table-${habitatId}` : undefined}>
-          <caption>{organismLabel} counts and percentages by generation</caption>
+        <table data-testid={`population-table-${habitatId}`}>
+          <caption>{copy.organismLabel} counts and percentages by generation</caption>
           <thead>
             <tr>
               <th scope="col">Generation</th>
-              <th scope="col">Mottled pattern</th>
-              <th scope="col">Solid pattern</th>
+              <th scope="col">{camouflagedLabel}</th>
+              <th scope="col">{conspicuousLabel}</th>
             </tr>
           </thead>
           <tbody>

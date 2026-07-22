@@ -58,6 +58,33 @@ function selectRequiredEvidence(
 }
 
 describe('useGameSession v2', () => {
+  it('starts a voluntary observation study atomically with standard timing stored internally', () => {
+    const { result } = renderHook(() => useGameSession())
+
+    act(() => result.current.startStudy('predator'))
+    expect(result.current.session.stage).toBe('mission')
+    expect(result.current.session.studyRoute).toBeNull()
+
+    act(() => result.current.startStudy('observation'))
+    expect(result.current.session).toMatchObject({
+      stage: 'prediction',
+      studyRoute: 'observation',
+      selectedTimingMode: 'standard',
+    })
+  })
+
+  it('starts a predator study atomically only after a timing mode is supplied', () => {
+    const { result } = renderHook(() => useGameSession())
+
+    act(() => result.current.startStudy('predator', 'extended'))
+
+    expect(result.current.session).toMatchObject({
+      stage: 'prediction',
+      studyRoute: 'predator',
+      selectedTimingMode: 'extended',
+    })
+  })
+
   it('gates prediction behind timing and runs three independent generations per habitat', () => {
     const { result } = renderHook(() => useGameSession())
 

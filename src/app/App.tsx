@@ -7,14 +7,17 @@ import { HabitatGame } from '../components/HabitatGame.tsx'
 import { HabitatSummaryScreen } from '../components/HabitatSummaryScreen.tsx'
 import { MisconceptionScreen } from '../components/MisconceptionScreen.tsx'
 import { MissionScreen } from '../components/MissionScreen.tsx'
+import { ObservationRound } from '../components/ObservationRound.tsx'
 import { PredictionPanel } from '../components/PredictionPanel.tsx'
 import { ResultsScreen } from '../components/ResultsScreen.tsx'
+import { StageActionDock } from '../components/StageActionDock.tsx'
 import {
   createCerClaimChoices,
   formatGenerationPopulationEvidence,
   formatRateBasedGenerationEvidence,
 } from '../learning/index.ts'
 import type { GameSession, SessionDraftEnvelope } from '../game/sessionTypes.ts'
+import type { CerEvidenceItem } from '../components/CerScreen.tsx'
 import { useGameSession } from '../game/useGameSession.ts'
 import type {
   ComparisonEvidenceReference,
@@ -22,19 +25,26 @@ import type {
   PopulationEvidenceReference,
 } from '../simulation/index.ts'
 import { localResultSaver } from '../storage/resultSaver.ts'
+import { e2eControlParams } from '../testing/e2eControls.ts'
 import './app.css'
 
 function e2eConfig() {
-  const params = new URLSearchParams(window.location.search)
-  const enabled = params.get('e2e') === '1'
-  const requestedDuration = Number(params.get('e2eRoundMs'))
+  const params = e2eControlParams()
+  const requestedDuration = Number(params?.get('e2eRoundMs'))
   return {
     durationMs:
-      enabled && Number.isFinite(requestedDuration) && requestedDuration >= 100
+      params !== null && Number.isFinite(requestedDuration) && requestedDuration >= 100
         ? requestedDuration
         : null,
-    forceRendererFailure: enabled && params.get('e2eRenderer') === 'fail',
+    forceRendererFailure: params?.get('e2eRenderer') === 'fail',
   }
+}
+
+function activeStageHeading(root: HTMLElement | null): HTMLElement | null {
+  if (!root) return null
+  return [...root.querySelectorAll<HTMLElement>('[data-stage-heading]')].find(
+    (heading) => heading.closest('[aria-hidden="true"]') === null,
+  ) ?? null
 }
 
 function populationEvidenceText(
@@ -87,7 +97,7 @@ export function App() {
   const [liveMessage, setLiveMessage] = useState('Mission ready.')
 
   const rendererAlert = config.forceRendererFailure
-    ? 'Graphics are unavailable for this test, so observation mode is active.'
+    ? 'Graphics are unavailable, so observation mode is active.'
     : null
   const systemAlert = [rendererAlert, storageAlert].filter(Boolean).join(' ')
 
@@ -133,7 +143,13 @@ export function App() {
   useEffect(() => {
     if (previousStageRef.current === session.stage) return
     previousStageRef.current = session.stage
-    const frame = window.requestAnimationFrame(() => mainRef.current?.focus())
+    const frame = window.requestAnimationFrame(() => {
+      const heading = activeStageHeading(mainRef.current)
+      if (!heading) return
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      heading.scrollIntoView({ block: 'start' })
+      heading.focus({ preventScroll: true })
+    })
     return () => window.cancelAnimationFrame(frame)
   }, [session.stage])
 
@@ -142,14 +158,36 @@ export function App() {
     : game.currentHabitat.timing.standard
   const durationMs = config.durationMs ?? timing.durationMs
   const latestResult: GenerationResult | undefined = game.currentSimulation.history.at(-1)
-  const rendererMounted = session.predictions.reef_fish !== null
-  const rendererActive = session.stage === 'round'
+  const rendererMounted =
+    session.studyRoute === 'predator' && session.predictions.reef_fish !== null
+  const rendererActive = session.stage === 'round' && session.studyRoute === 'predator'
 
-  const evidenceTexts = session.evidence.population.map((reference) =>
-    populationEvidenceText(game, reference),
-  )
+  const evidenceItems: CerEvidenceItem[] = []
+  const evidenceOrder: readonly PopulationEvidenceReference[] = [
+    { kind: 'population', habitatId: 'reef_fish', generation: 0 },
+    { kind: 'population', habitatId: 'reef_fish', generation: 3 },
+    { kind: 'population', habitatId: 'bark_moths', generation: 0 },
+    { kind: 'population', habitatId: 'bark_moths', generation: 3 },
+  ]
+  for (const reference of evidenceOrder) {
+    if (!session.evidence.population.some(
+      (selected) =>
+        selected.habitatId === reference.habitatId && selected.generation === reference.generation,
+    )) {
+      continue
+    }
+    evidenceItems.push({
+      id: `${reference.habitatId}-g${reference.generation}`,
+      label: `${reference.habitatId === 'reef_fish' ? 'Reef fish' : 'Bark moths'} G${reference.generation}`,
+      text: populationEvidenceText(game, reference),
+    })
+  }
   if (session.evidence.comparison) {
-    evidenceTexts.push(comparisonEvidenceText(session, session.evidence.comparison))
+    evidenceItems.push({
+      id: 'survival-reproduction-comparison',
+      label: 'Survival and reproduction comparison',
+      text: comparisonEvidenceText(session, session.evidence.comparison),
+    })
   }
 
   const currentQuestion = game.misconceptionQuestions[session.currentCheckIndex]
@@ -170,6 +208,19 @@ export function App() {
     setDraftCandidate(null)
     setLiveMessage('A new field study is ready with a new placement seed.')
     game.replay()
+  }
+
+  function handleRoundComplete(metrics: Parameters<typeof game.completeRound>[0]) {
+    game.completeRound(metrics)
+    setLiveMessage(`Generation ${game.currentGeneration} complete. Review the population evidence.`)
+  }
+
+  function handleCheckAnswer(answerId: string, correct: boolean) {
+    if (!currentQuestion) return
+    game.answerCheck(currentQuestion.id, answerId, correct)
+    if (correct) {
+      setLiveMessage('Correct. Read the feedback, then continue to the next science check.')
+    }
   }
 
   return (
@@ -226,31 +277,6 @@ export function App() {
         </div>
       )}
 
-      {rendererMounted && (
-        <div
-          aria-hidden={!rendererActive}
-          className={`persistent-renderer${rendererActive ? '' : ' persistent-renderer--hidden'}`}
-        >
-          <HabitatGame
-            active={rendererActive}
-            counts={game.currentSimulation.counts}
-            durationMs={durationMs}
-            forceRendererFailure={config.forceRendererFailure}
-            generation={game.currentGeneration}
-            habitatId={session.currentHabitatId}
-            habitatTitle={game.currentHabitat.copy.title}
-            hitAreaScale={timing.hitAreaScale}
-            movementScale={timing.movementScale}
-            onComplete={(metrics) => {
-              game.completeRound(metrics)
-              setLiveMessage(`Generation ${game.currentGeneration} complete. Review the population evidence.`)
-            }}
-            roundSeed={game.roundSeed}
-            timingMode={session.selectedTimingMode ?? 'standard'}
-          />
-        </div>
-      )}
-
       <main
         aria-label="Natural Selection predator and camouflage study"
         className={`game-main game-main--${session.stage}`}
@@ -258,8 +284,31 @@ export function App() {
         ref={mainRef}
         tabIndex={-1}
       >
+        {rendererMounted && (
+          <div
+            aria-hidden={!rendererActive}
+            className={`persistent-renderer${rendererActive ? '' : ' persistent-renderer--hidden'}`}
+          >
+            <HabitatGame
+              active={rendererActive}
+              counts={game.currentSimulation.counts}
+              durationMs={durationMs}
+              forceRendererFailure={config.forceRendererFailure}
+              generation={game.currentGeneration}
+              habitatId={session.currentHabitatId}
+              habitatTitle={game.currentHabitat.copy.title}
+              hitAreaScale={timing.hitAreaScale}
+              movementScale={timing.movementScale}
+              onAnnounce={setLiveMessage}
+              onComplete={handleRoundComplete}
+              roundSeed={game.roundSeed}
+              timingMode={session.selectedTimingMode ?? 'standard'}
+            />
+          </div>
+        )}
+
         {session.stage === 'mission' && (
-          <MissionScreen onBegin={game.selectTiming} storageMessage={storageMessage} />
+          <MissionScreen onBegin={game.startStudy} storageMessage={storageMessage} />
         )}
 
         {session.stage === 'prediction' && (
@@ -271,6 +320,17 @@ export function App() {
             habitat={game.currentHabitat}
             onContinue={handleGenerationContinue}
             result={latestResult}
+          />
+        )}
+
+        {session.stage === 'round' && session.studyRoute === 'observation' && (
+          <ObservationRound
+            counts={game.currentSimulation.counts}
+            generation={game.currentGeneration}
+            habitatId={session.currentHabitatId}
+            habitatTitle={game.currentHabitat.copy.title}
+            onComplete={handleRoundComplete}
+            roundSeed={game.roundSeed}
           />
         )}
 
@@ -292,6 +352,20 @@ export function App() {
             onContinue={game.enterChecks}
             onSelectComparison={game.selectComparisonEvidence}
             onTogglePopulation={game.togglePopulationEvidence}
+            renderActionDock={(progress) => (
+              <StageActionDock
+                disabled={!progress.isComplete}
+                disabledReason={`Select ${progress.remainingCount} more evidence piece${progress.remainingCount === 1 ? '' : 's'} to continue.`}
+                onPrimary={game.enterChecks}
+                primaryLabel="Use this evidence"
+                status={
+                  progress.isComplete
+                    ? 'All 5 evidence pieces selected — ready to continue.'
+                    : `${progress.selectedCount} of ${progress.requiredCount} selected — ${progress.remainingCount} remaining.`
+                }
+                testId="evidence-dock-action"
+              />
+            )}
             selectedComparison={session.evidence.comparison}
             selectedPopulation={session.evidence.population}
           />
@@ -299,7 +373,7 @@ export function App() {
 
         {session.stage === 'checks' && currentQuestion && (
           <MisconceptionScreen
-            onAnswer={(answerId, correct) => game.answerCheck(currentQuestion.id, answerId, correct)}
+            onAnswer={handleCheckAnswer}
             onContinue={game.nextCheck}
             question={currentQuestion}
             questionNumber={session.currentCheckIndex + 1}
@@ -310,10 +384,30 @@ export function App() {
         {session.stage === 'cer' && (
           <CerScreen
             claims={createCerClaimChoices(game.outcomes)}
-            evidenceTexts={evidenceTexts}
+            evidenceItems={evidenceItems}
             initialDraft={session.cer}
             onComplete={game.completeCer}
             onDraftChange={game.updateCer}
+            renderActionDock={(state) => (
+              <StageActionDock
+                disabled={!state.canComplete}
+                disabledReason={
+                  state.reasoningLength < state.minimumReasoningLength
+                    ? `Add ${state.minimumReasoningLength - state.reasoningLength} more characters after choosing a claim.`
+                    : 'Choose a claim that matches the evidence.'
+                }
+                formId={state.formId}
+                primaryLabel="Complete the field report"
+                status={
+                  state.canComplete
+                    ? 'Your claim and reasoning are ready to submit.'
+                    : state.reasoningLength < state.minimumReasoningLength
+                      ? `Add ${state.minimumReasoningLength - state.reasoningLength} more characters.`
+                      : 'Choose a claim to complete your field report.'
+                }
+                testId="cer-dock-action"
+              />
+            )}
           />
         )}
 

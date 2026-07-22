@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import type { HabitatId, MorphId } from '../simulation/index.ts'
 import {
   createActorLayout,
+  fishCurveOffset,
   remapActorLayout,
   seededUnit,
   type ActorLayout,
@@ -75,6 +76,8 @@ export type ActorDiagnostic = {
 export type SceneDiagnostics = {
   roundState: RoundInteractionState
   roundId: string | null
+  placementSeed: number | null
+  movementSeed: number | null
   remainingMs: number
   reducedMotion: boolean
   actors: ActorDiagnostic[]
@@ -294,6 +297,8 @@ export class HabitatScene extends Phaser.Scene {
     return {
       roundState: this.roundState,
       roundId: this.round?.roundId ?? null,
+      placementSeed: this.round?.placementSeed ?? null,
+      movementSeed: this.round?.movementSeed ?? null,
       remainingMs: this.remainingMs,
       reducedMotion: this.round?.reducedMotion ?? false,
       actors: [...this.actors.values()].map((actor) => this.actorDiagnostic(actor)),
@@ -371,61 +376,70 @@ export class HabitatScene extends Phaser.Scene {
 
     if (habitatId === 'reef_fish') {
       const artRandom = seededUnit(0x51f15e)
-      background.fillStyle(0x10596a, 1).fillRect(0, 0, width, height)
-      const waterBands = [0x0e5365, 0x125f70, 0x176878, 0x1b7180, 0x206f7b]
-      for (let band = 0; band < waterBands.length; band += 1) {
-        const top = (height * band) / waterBands.length
-        background.fillStyle(waterBands[band], 0.38)
-          .fillRect(0, top, width, height / waterBands.length + 2)
-      }
-      for (let patch = 0; patch < 24; patch += 1) {
+      // One continuous field deliberately avoids five decorative bands that could
+      // accidentally echo the five safe placement rows.
+      background.fillGradientStyle(0x0b4d5a, 0x125f68, 0x15525e, 0x26716f, 1, 1, 1, 1)
+        .fillRect(0, 0, width, height)
+      // Broad, low-contrast water shadows deliberately avoid fish-sized silhouettes.
+      for (let patch = 0; patch < 38; patch += 1) {
         const x = artRandom() * width
         const y = artRandom() * height * 0.78
-        const radiusX = 42 + artRandom() * 120
-        const radiusY = 18 + artRandom() * 54
-        background.fillStyle(patch % 2 === 0 ? 0x0d4c5f : 0x2c7c82, 0.1 + artRandom() * 0.08)
+        const radiusX = 92 + artRandom() * 188
+        const radiusY = 54 + artRandom() * 112
+        background.fillStyle(patch % 2 === 0 ? 0x0a4352 : 0x4b8277, 0.035 + artRandom() * 0.045)
           .fillEllipse(x, y, radiusX, radiusY)
       }
-      background.lineStyle(2, 0xb8e0dc, 0.1)
-      for (let shaft = 0; shaft < 16; shaft += 1) {
+      // Broken light ribbons and small dapple make a habitat texture, not targets.
+      background.lineStyle(2, 0xb9d5c8, 0.055)
+      for (let shaft = 0; shaft < 28; shaft += 1) {
         const x = artRandom() * width
         const y = artRandom() * height * 0.55
-        const length = 32 + artRandom() * 88
-        background.beginPath().moveTo(x, y).lineTo(x + length, y + 8 + artRandom() * 18).strokePath()
+        const length = 54 + artRandom() * 142
+        background.beginPath().moveTo(x, y).lineTo(x + length, y + 12 + artRandom() * 30).strokePath()
       }
-      for (let mark = 0; mark < 104; mark += 1) {
+      // Fine reef grain is intentionally short, faint, and noninteractive; it must not read as prey.
+      for (let mark = 0; mark < 174; mark += 1) {
         const x = artRandom() * width
         const y = 22 + artRandom() * Math.max(1, height - 118)
-        const length = 6 + artRandom() * 17
-        background.lineStyle(1 + artRandom(), mark % 3 === 0 ? 0xd4c184 : 0x70aeb0, 0.08 + artRandom() * 0.08)
-        background.beginPath().moveTo(x, y).lineTo(x + length, y + (artRandom() - 0.5) * 5).strokePath()
+        const length = 2 + artRandom() * 9
+        background.lineStyle(1, mark % 3 === 0 ? 0x9f9d78 : 0x72aaa0, 0.028 + artRandom() * 0.035)
+        background.beginPath().moveTo(x, y).lineTo(x + length, y + (artRandom() - 0.5) * 3).strokePath()
       }
       const seabedTop = height - 64
-      background.fillStyle(0x8f8664, 0.92).fillRect(0, seabedTop, width, height - seabedTop)
-      background.fillStyle(0x566f62, 0.46)
-      for (let rock = 0; rock < 18; rock += 1) {
+      background.fillStyle(0x7c7b68, 0.92).fillRect(0, seabedTop, width, height - seabedTop)
+      background.fillStyle(0x415f5b, 0.42)
+      for (let rock = 0; rock < 23; rock += 1) {
         const x = artRandom() * width
         const y = seabedTop + 10 + artRandom() * 48
-        background.fillEllipse(x, y, 18 + artRandom() * 48, 8 + artRandom() * 20)
+        background.fillCircle(x, y, 7 + artRandom() * 18)
       }
-      for (let plant = 0; plant < 13; plant += 1) {
+      for (let plant = 0; plant < 17; plant += 1) {
         const x = 12 + artRandom() * (width - 24)
-        const plantHeight = 24 + artRandom() * 54
-        const color = plant % 3 === 0 ? 0x64516f : plant % 2 === 0 ? 0x386f68 : 0x4e7e6c
-        background.lineStyle(5 + artRandom() * 4, color, 0.34)
+        const plantHeight = 22 + artRandom() * 62
+        const color = plant % 3 === 0 ? 0x4d596a : plant % 2 === 0 ? 0x356965 : 0x527965
+        background.lineStyle(4 + artRandom() * 4, color, 0.28)
         background.beginPath().moveTo(x, height).lineTo(x + (artRandom() - 0.5) * 18, height - plantHeight).strokePath()
+        background.lineStyle(2, color, 0.21)
+        background.beginPath().moveTo(x, height - plantHeight * 0.45)
+          .lineTo(x + (artRandom() - 0.5) * 25, height - plantHeight * 0.72)
+          .strokePath()
       }
       return
     }
 
-    background.fillStyle(0x72513a, 1).fillRect(0, 0, width, height)
-    background.lineStyle(5, 0x4e3427, 0.6)
-    for (let x = -20; x < width + 40; x += 54) {
-      background.beginPath().moveTo(x, 0).lineTo(x + 28, height).strokePath()
+    const barkRandom = seededUnit(0x6b6b4d)
+    background.fillStyle(0x6d5140, 1).fillRect(0, 0, width, height)
+    background.lineStyle(5, 0x49382f, 0.38)
+    for (let x = -34; x < width + 52; x += 49 + barkRandom() * 20) {
+      background.beginPath().moveTo(x, 0).lineTo(x + 20 + barkRandom() * 25, height).strokePath()
     }
-    background.lineStyle(2, 0xa7835f, 0.6)
-    for (let y = 24; y < height; y += 44) {
-      background.beginPath().moveTo(0, y).lineTo(width, y + 18).strokePath()
+    background.lineStyle(2, 0xa07a5b, 0.2)
+    for (let crack = 0; crack < 45; crack += 1) {
+      const x = barkRandom() * width
+      const y = barkRandom() * height
+      background.beginPath().moveTo(x, y)
+        .lineTo(x + 8 + barkRandom() * 20, y + (barkRandom() - 0.5) * 12)
+        .strokePath()
     }
   }
 
@@ -490,38 +504,50 @@ export class HabitatScene extends Phaser.Scene {
     const camouflaged = morphId === 'camouflaged'
 
     if (habitatId === 'reef_fish') {
+      // Both fish use reef-adjacent values. The distinction is broken pattern and
+      // restrained luminance, never a bright gold-versus-teal locator cue.
       const bodyColor = camouflaged
-        ? 0x28717c
-        : 0xd5ad4f
+        ? 0x39756e
+        : 0x5b756b
       const patternColor = camouflaged
-        ? 0x15586a
-        : 0x68456f
-      shape.fillStyle(bodyColor, 1).fillEllipse(0, 0, 48, 28)
+        ? 0x245d60
+        : 0x405f58
+      shape.fillStyle(bodyColor, 0.94).fillEllipse(0, 0, 48, 28)
       shape.fillTriangle(-22, 0, -38, -15, -38, 15)
-      shape.fillStyle(patternColor, 0.95)
+      shape.fillStyle(patternColor, 0.84)
       if (camouflaged) {
         const patches = [
-          [-14, -5, 4], [-7, 5, 3], [1, -4, 4], [8, 5, 3], [15, -2, 4],
-          [-12, 7, 2], [5, 8, 2],
+          [-15, -6, 3], [-9, 5, 3], [-2, -4, 2], [5, 6, 3], [13, -2, 2],
+          [-13, 7, 2], [2, 8, 2], [16, 5, 2], [-4, 1, 2],
         ] as const
         for (const [x, y, radius] of patches) shape.fillCircle(x, y, radius)
       } else {
-        for (let x = -14; x <= 14; x += 10) shape.fillRect(x, -13, 5, 26)
+        const fragments = [
+          [-15, -10, 4, 7], [-15, 5, 3, 6], [-5, -12, 3, 6], [-4, -1, 4, 8],
+          [6, -9, 3, 7], [7, 6, 4, 5], [16, -7, 2, 8], [15, 7, 2, 4],
+        ] as const
+        for (const [x, y, width, height] of fragments) shape.fillRoundedRect(x, y, width, height, 2)
       }
-      shape.fillStyle(camouflaged ? 0x123e49 : 0x5f4b1e, 0.95).fillCircle(14, -5, 2.5)
+      // A shared small dark eye avoids a bright point that would work as a locator cue.
+      shape.fillStyle(0x263b36, 0.9).fillCircle(14, -5, 1.7)
     } else {
-      const wingColor = camouflaged ? 0x846347 : 0xe4c8ec
-      const patternColor = camouflaged ? 0x4e3427 : 0x70406d
+      // Moths likewise differ by mottling and luminance rather than a saturated color signal.
+      const wingColor = camouflaged ? 0x806850 : 0x9a9074
+      const patternColor = camouflaged ? 0x4b3d30 : 0x5d5a4b
       shape.fillStyle(wingColor, 1)
       shape.fillEllipse(-13, -2, 26, 34)
       shape.fillEllipse(13, -2, 26, 34)
       shape.fillStyle(patternColor, 0.95)
       if (camouflaged) {
-        shape.fillCircle(-13, -4, 5).fillCircle(13, -4, 5)
+        shape.fillCircle(-14, -5, 5).fillCircle(14, -5, 5)
         shape.fillCircle(-9, 8, 3).fillCircle(9, 8, 3)
+        shape.fillCircle(-17, 7, 2).fillCircle(17, 7, 2)
       } else {
-        shape.fillRect(-18, -4, 36, 7)
-        shape.fillRect(-13, 7, 26, 5)
+        const fragments = [
+          [-21, -6, 11, 5], [-17, 6, 8, 5], [-8, -12, 6, 5],
+          [10, -6, 11, 5], [9, 6, 8, 5], [2, -12, 6, 5],
+        ] as const
+        for (const [x, y, width, height] of fragments) shape.fillRoundedRect(x, y, width, height, 2)
       }
       shape.fillStyle(0x29201b, 1).fillRoundedRect(-3, -16, 6, 32, 3)
     }
@@ -549,7 +575,7 @@ export class HabitatScene extends Phaser.Scene {
       const patrolTop = actor.layout.patrolBounds.y
       const patrolBottom = patrolTop + actor.layout.patrolBounds.height
       actor.container.y = clamp(
-        actor.baseY + Math.sin(this.movementElapsedMs / 750 + profile.phase) * profile.verticalAmplitude,
+        actor.baseY + fishCurveOffset(profile, this.movementElapsedMs),
         patrolTop,
         patrolBottom,
       )
@@ -600,7 +626,7 @@ export class HabitatScene extends Phaser.Scene {
       const patrolTop = actor.layout.patrolBounds.y
       const patrolBottom = patrolTop + actor.layout.patrolBounds.height
       const nextY = clamp(
-        actor.baseY + Math.sin(this.movementElapsedMs / 750 + profile.phase) * profile.verticalAmplitude,
+        actor.baseY + fishCurveOffset(profile, this.movementElapsedMs),
         patrolTop,
         patrolBottom,
       )

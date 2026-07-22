@@ -57,6 +57,13 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     expectNoEligibleActorOverlap(initial)
 
     await tapActors(page, 3)
+    const afterThreeCatches = await qaSnapshot(page)
+    expect(afterThreeCatches.firstAcceptedCatchElapsedMs).not.toBeNull()
+    expect(afterThreeCatches.acceptedCaptureTrace).toHaveLength(3)
+    expect(
+      afterThreeCatches.manualCatchesByMorph.camouflaged +
+        afterThreeCatches.manualCatchesByMorph.conspicuous,
+    ).toBe(3)
     const blankPoint = await findBlankCanvasPoint(page)
     await page.touchscreen.tap(blankPoint.x, blankPoint.y)
     await expect(page.getByText(/misses\s*1.*no penalty/i)).toBeVisible()
@@ -121,7 +128,7 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await expect(firstSummary).toBeVisible()
     await expect(firstSummary).toContainText(/12 by you/i)
     await expect(firstSummary).toContainText(/8 of 20 survived/i)
-    await expect(firstSummary).toContainText(/11 mottled.*29 solid/i)
+    await expect(firstSummary).toContainText(/11 reef-matched pattern.*29 high-contrast pattern/i)
 
     await page.getByTestId('continue-generation').click()
     await startGenerationByTouch(page)
@@ -219,7 +226,7 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await expect(page.getByText(/caught\s*2 of 12/i)).toBeVisible()
   })
 
-  test('visibility pause freezes the round until the student resumes', async ({ page }) => {
+  test('visibility pause freezes the round until the student resumes @webkit', async ({ page }) => {
     await openInteractiveRound(page, { seed: 'touch-pause-resume' })
     await startGenerationByTouch(page)
 
@@ -248,7 +255,7 @@ test.describe('Natural Selection direct-touch interaction polish', () => {
     await expect.poll(async () => (await qaSnapshot(page)).remainingMs).toBeLessThan(pausedRemaining)
   })
 
-  test('reduced motion keeps the live renderer tappable with static vertical motion', async ({ page }) => {
+  test('reduced motion keeps the live renderer tappable with static vertical motion @webkit', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await openInteractiveRound(page, { seed: 'touch-reduced-motion' })
     const snapshot = await startGenerationByTouch(page)

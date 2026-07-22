@@ -1,6 +1,6 @@
 # Natural Selection: Predator & Camouflage
 
-An iPad-first, 10–15 minute Biology 1 game for ninth-grade students. Students act as predators in reef-fish and bark-moth habitats, then use their own population data to explain natural selection.
+An iPad-first, 10–15 minute Biology 1 game for ninth-grade students. Students can act as predators in reef-fish and bark-moth habitats or choose an Observation study, then use population data to explain natural selection.
 
 ## Learning target
 
@@ -30,7 +30,7 @@ npm run build
 npm run test:e2e
 ```
 
-The browser suite covers three complete journeys: Standard mode, Extended mode with refresh/resume and correction, and the graphics/storage fallback. Release screenshots are written to `test-results/release-screenshots/`.
+The browser suite covers Standard mode, Extended mode with refresh/resume and correction, student-selected Observation study, and graphics/storage fallback. Release screenshots are written to `test-results/release-screenshots/`.
 
 ## Classroom model
 
@@ -49,7 +49,8 @@ Standard mode provides 25 seconds per generation. Extended mode provides 40 seco
 - Phaser owns procedural 2D habitat drawing, movement, tap detection, and nonviolent feedback only.
 - The biology engine is immutable, seeded, and fully testable without rendering.
 - Phaser is lazy-loaded after the mission screen and one game instance is retained through the session.
-- A DOM observation fallback preserves the complete science pathway if graphics fail.
+- Students can intentionally choose a no-canvas Observation study that reaches the same science endpoint without a predator score.
+- A distinct DOM observation fallback preserves the complete science pathway if graphics fail.
 
 All artwork is generated procedurally in the project; there are no external runtime art assets.
 

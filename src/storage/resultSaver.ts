@@ -1,5 +1,14 @@
-import type { GameSession, DraftLoadResult, SessionDraftEnvelope } from '../game/sessionTypes.ts'
-import { SESSION_DRAFT_SCHEMA_VERSION } from '../game/sessionTypes.ts'
+import type {
+  GameSession,
+  DraftLoadResult,
+  LegacySessionDraftEnvelope,
+  SessionDraftEnvelope,
+} from '../game/sessionTypes.ts'
+import {
+  LEGACY_SESSION_DRAFT_SCHEMA_VERSION,
+  SESSION_DRAFT_SCHEMA_VERSION,
+} from '../game/sessionTypes.ts'
+import { e2eControlParams } from '../testing/e2eControls.ts'
 import {
   parseNaturalSelectionResult,
   serializeNaturalSelectionResult,
@@ -16,10 +25,21 @@ function isGameSession(value: unknown): value is GameSession {
     'mission', 'timing', 'habitat_intro', 'prediction', 'round',
     'generation_review', 'habitat_summary', 'evidence', 'checks', 'cer', 'results',
   ])
-  const timingValid =
-    record.selectedTimingMode === null ||
-    record.selectedTimingMode === 'standard' ||
-    record.selectedTimingMode === 'extended'
+  const stage = record.stage
+  const timingMode = record.selectedTimingMode
+  const studyRoute = record.studyRoute
+  const stageValid = typeof stage === 'string' && stages.has(stage)
+  /**
+   * A route is intentionally absent only before a study begins. Allowing a
+   * route-less round through would restore a shell with neither Phaser nor the
+   * semantic Observation surface mounted, so treat that draft as incomplete.
+   */
+  const studyConfigurationValid = stage === 'mission'
+    ? studyRoute === null && timingMode === null
+    : (
+        (studyRoute === 'predator' && (timingMode === 'standard' || timingMode === 'extended')) ||
+        (studyRoute === 'observation' && timingMode === 'standard')
+      )
   const habitatValid =
     record.currentHabitatId === 'reef_fish' || record.currentHabitatId === 'bark_moths'
   const habitats = record.habitats as Record<string, unknown> | null
@@ -53,8 +73,7 @@ function isGameSession(value: unknown): value is GameSession {
     Number(record.seed) >= 0 &&
     Number(record.seed) <= 0xffff_ffff &&
     typeof record.startedAt === 'string' && !Number.isNaN(Date.parse(record.startedAt)) &&
-    typeof record.stage === 'string' && stages.has(record.stage) &&
-    timingValid && habitatValid &&
+    stageValid && studyConfigurationValid && habitatValid &&
     validProgress('reef_fish') && validProgress('bark_moths') &&
     typeof record.predictions === 'object' &&
     record.predictions !== null &&
@@ -66,9 +85,19 @@ function isGameSession(value: unknown): value is GameSession {
   )
 }
 
+function migrateLegacyDraft(envelope: LegacySessionDraftEnvelope): SessionDraftEnvelope {
+  return {
+    schemaVersion: SESSION_DRAFT_SCHEMA_VERSION,
+    savedAt: envelope.savedAt,
+    session: {
+      ...envelope.session,
+      studyRoute: 'predator',
+    },
+  }
+}
+
 function forcedFailure(): boolean {
-  const params = new URLSearchParams(window.location.search)
-  return params.get('e2e') === '1' && params.get('e2eStorage') === 'fail'
+  return e2eControlParams()?.get('e2eStorage') === 'fail'
 }
 
 export class LocalResultSaver {
@@ -90,21 +119,32 @@ export class LocalResultSaver {
         throw new Error('The saved study is not a valid object.')
       }
       const envelope = parsed as Record<string, unknown>
-      if (envelope.schemaVersion !== SESSION_DRAFT_SCHEMA_VERSION) {
+      const schemaVersion = envelope.schemaVersion
+      if (
+        schemaVersion !== SESSION_DRAFT_SCHEMA_VERSION &&
+        schemaVersion !== LEGACY_SESSION_DRAFT_SCHEMA_VERSION
+      ) {
         throw new Error('The saved study uses an older format.')
       }
       if (typeof envelope.savedAt !== 'string' || Number.isNaN(Date.parse(envelope.savedAt))) {
         throw new Error('The saved study is missing a valid timestamp.')
       }
-      if (!isGameSession(envelope.session)) {
+      const candidate = schemaVersion === LEGACY_SESSION_DRAFT_SCHEMA_VERSION
+        ? migrateLegacyDraft(envelope as unknown as LegacySessionDraftEnvelope)
+        : {
+            schemaVersion: SESSION_DRAFT_SCHEMA_VERSION,
+            savedAt: envelope.savedAt,
+            session: envelope.session,
+          }
+      if (!isGameSession(candidate.session)) {
         throw new Error('The saved study is incomplete.')
       }
       return {
         status: 'valid',
         draft: {
           schemaVersion: SESSION_DRAFT_SCHEMA_VERSION,
-          savedAt: envelope.savedAt,
-          session: envelope.session,
+          savedAt: candidate.savedAt,
+          session: candidate.session,
         },
       }
     } catch (error) {

@@ -10,14 +10,17 @@ The app should honor these parameters only when `e2e=1` and the build is running
 locally or under the Playwright test command:
 
 - `e2eRoundMs`: shortens each generation timer without changing production timing.
-- `e2eSeed`: supplies the initial deterministic placement/selection seed.
+- `e2eSeed`: supplies the initial deterministic session seed.
+- `e2ePlacementSeed`: QA-only raw renderer placement seed; requires both
+  `e2e=1` and `qa=1` and does not alter biology or movement seeds.
 - `e2eRenderer=fail`: forces the DOM observation fallback.
 - `e2eStorage=fail`: makes saver calls fail while keeping the study playable.
 - `qa=1`: exposes the network-free interaction diagnostics bridge in development
   or a build created with `VITE_INTERACTION_QA=1`.
 
-Production sessions must ignore these controls. Replay must replace the supplied
-initial seed with a fresh seed.
+Production sessions must ignore these controls unless the artifact was
+deliberately built with `VITE_INTERACTION_QA=1`. Replay must replace the
+supplied initial seed with a fresh seed.
 
 ## Interaction QA bridge
 
@@ -28,11 +31,33 @@ contains round state, actor targets, renderer lifecycle counts, pause reasons,
 feedback latency, frame metrics, and duplicate-completion diagnostics. It is
 in-memory only and contains no identity or assessment responses.
 
-Chromium runs the complete suite. The `webkit-ipad` project runs only interaction
-tests tagged `@webkit`. The 60-second performance sample and three-study lifecycle
-sample are tagged `@soak` and run only when `RUN_INTERACTION_SOAK=1` is set.
+Chromium runs the ordinary browser suite; manual challenge-baseline cases and
+opt-in capture/soak cases are skipped unless their environment flag is set. The
+`webkit-ipad` project runs every test tagged `@webkit`, including study-route,
+touch, rotation, pause/resume, reduced motion, Observation, and renderer-failure
+coverage. The
+60-second performance sample and three-study lifecycle sample are tagged `@soak`
+and run only when `RUN_INTERACTION_SOAK=1` is set.
 The dedicated landscape resolving artifact runs only when
 `CAPTURE_INTERACTION_SCREENSHOTS=1` is set.
+
+## Challenge-field baseline
+
+`challenge-baseline.spec.ts` is opt-in and writes ignored local evidence under
+`test-results/challenge-baseline/`.
+
+- `CAPTURE_CHALLENGE_ISOLATED_BASELINE=1` records the authoritative fresh-page
+  0/5/10/20-second diagnostic for each requested raw placement. With no seed
+  list it covers `101`–`112` across all four target viewports.
+- `CHALLENGE_BASELINE_PLACEMENT_SEEDS=101,102,...` limits that manual run to a
+  unique subset of `101` through `112`.
+- `CAPTURE_CHALLENGE_REPRESENTATIVE_SCREENSHOTS=1` captures fresh representative
+  fields at 0, 5, 10, and 20 seconds. It is intentionally separate from the
+  diagnostic timeline because inline canvas screenshots can disrupt Phaser's
+  logical clock.
+
+Only files named `fish-*-isolated-seed-*.json` are authoritative all-field
+baseline records. Grouped or partial artifacts are exploratory diagnostics.
 
 ## Required stable test IDs
 
@@ -53,5 +78,5 @@ The dedicated landscape resolving artifact runs only when
 - Fallback: `dom-observation-fallback`.
 
 The Playwright output directory, HTML report, and generated screenshots should be
-ignored by Git. The twelve selected release screenshots are written under
+ignored by Git. The selected release screenshots are written under
 `test-results/release-screenshots/` and attached to the HTML report.

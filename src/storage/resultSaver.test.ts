@@ -149,10 +149,46 @@ describe('LocalResultSaver v2', () => {
         stage: 'mission',
       })
       expect(loaded.draft.session.completedResult).toBeNull()
+      expect(loaded.draft.session.studyRoute).toBeNull()
     }
 
     saver.clearDraft()
     expect(saver.loadDraft()).toEqual({ status: 'none' })
+  })
+
+  it('migrates a v2.0 draft to the predator study route without changing its timing or biology state', () => {
+    const saver = new LocalResultSaver()
+    const current = createFreshSession(4321)
+    const { studyRoute: _studyRoute, ...legacySession } = current
+    window.localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        schemaVersion: '2.0',
+        savedAt: new Date().toISOString(),
+        session: {
+          ...legacySession,
+          stage: 'prediction',
+          selectedTimingMode: 'extended',
+        },
+      }),
+    )
+
+    const loaded = saver.loadDraft()
+
+    expect(loaded.status).toBe('valid')
+    if (loaded.status === 'valid') {
+      expect(loaded.draft.schemaVersion).toBe('2.1')
+      expect(loaded.draft.session).toMatchObject({
+        seed: 4321,
+        stage: 'prediction',
+        studyRoute: 'predator',
+        selectedTimingMode: 'extended',
+      })
+      expect(loaded.draft.session.habitats.reef_fish.simulation.counts).toEqual({
+        camouflaged: 20,
+        conspicuous: 20,
+      })
+    }
   })
 
   it('saves an anonymous completed result and clears the resumable draft', () => {
@@ -184,6 +220,29 @@ describe('LocalResultSaver v2', () => {
     window.localStorage.setItem(DRAFT_KEY, serialized)
 
     const loaded = saver.loadDraft()
+    expect(loaded.status).toBe('discarded')
+    expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull()
+  })
+
+  it('discards a current draft whose route is missing after the Mission stage', () => {
+    const saver = new LocalResultSaver()
+    const malformed = {
+      ...createFreshSession(702),
+      stage: 'round',
+      studyRoute: null,
+      selectedTimingMode: 'standard',
+    }
+    window.localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        schemaVersion: '2.1',
+        savedAt: new Date().toISOString(),
+        session: malformed,
+      }),
+    )
+
+    const loaded = saver.loadDraft()
+
     expect(loaded.status).toBe('discarded')
     expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull()
   })

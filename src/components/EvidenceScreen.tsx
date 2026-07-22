@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import {
   formatGenerationPopulationEvidence,
   formatRateBasedGenerationEvidence,
@@ -21,6 +22,19 @@ type EvidenceScreenProps = {
   onTogglePopulation: (reference: PopulationEvidenceReference) => void
   onSelectComparison: (reference: ComparisonEvidenceReference) => void
   onContinue: () => void
+  /**
+   * Optional insertion point for the shared stage action dock. The screen
+   * keeps its in-flow button only when no dock is supplied, so students never
+   * see two competing actions in the full app.
+   */
+  renderActionDock?: (state: EvidenceProgressState) => ReactNode
+}
+
+export type EvidenceProgressState = {
+  selectedCount: number
+  requiredCount: number
+  remainingCount: number
+  isComplete: boolean
 }
 
 const POPULATION_REFERENCES: readonly PopulationEvidenceReference[] = [
@@ -88,6 +102,7 @@ export function EvidenceScreen({
   onTogglePopulation,
   onSelectComparison,
   onContinue,
+  renderActionDock,
 }: EvidenceScreenProps) {
   const comparison = comparisonCandidate(generations)
   const comparisonReference: ComparisonEvidenceReference = {
@@ -102,6 +117,47 @@ export function EvidenceScreen({
     selectedPopulation.some((selected) => samePopulationReference(selected, reference)),
   )
   const isComplete = populationComplete && selectedComparison !== null
+  const progressItems = [
+    ...POPULATION_REFERENCES.map((reference) => ({
+      id: `${reference.habitatId}-g${reference.generation}`,
+      label: `${HABITAT_STUDENT_COPY[reference.habitatId].title}, Generation ${reference.generation}`,
+      selected: selectedPopulation.some((item) => samePopulationReference(item, reference)),
+    })),
+    {
+      id: 'survival-reproduction-comparison',
+      label: 'Survival and reproduction comparison',
+      selected: hasComparison,
+    },
+  ]
+  const progress: EvidenceProgressState = {
+    selectedCount: progressItems.filter((item) => item.selected).length,
+    requiredCount: progressItems.length,
+    remainingCount: progressItems.filter((item) => !item.selected).length,
+    isComplete,
+  }
+
+  function renderPopulationChoice(reference: PopulationEvidenceReference) {
+    const point = findPoint(graphPoints, reference)
+    const selected = selectedPopulation.some((item) => samePopulationReference(item, reference))
+    const habitat = HABITAT_STUDENT_COPY[reference.habitatId]
+    return (
+      <button
+        aria-pressed={selected}
+        className={`evidence-choice${selected ? ' is-selected' : ''}`}
+        data-testid={`evidence-${reference.habitatId}-g${reference.generation}`}
+        key={`${reference.habitatId}-${reference.generation}`}
+        onClick={() => onTogglePopulation(reference)}
+        type="button"
+      >
+        <strong>
+          {habitat.title}, Generation {reference.generation}
+        </strong>
+        <span>
+          {formatGenerationPopulationEvidence(reference.habitatId, reference.generation, point.counts)}
+        </span>
+      </button>
+    )
+  }
 
   return (
     <div className="evidence-layout">
@@ -115,38 +171,40 @@ export function EvidenceScreen({
           percentages from both studies, then add one survival-and-reproduction comparison.
         </p>
 
+        <section aria-labelledby="evidence-progress-title" className="evidence-progress">
+          <h3 id="evidence-progress-title">Your evidence checklist</h3>
+          <p className="evidence-progress__summary" data-testid="evidence-progress">
+            {progress.isComplete
+              ? 'All 5 evidence pieces selected.'
+              : `${progress.selectedCount} of ${progress.requiredCount} evidence pieces selected. ${progress.remainingCount} remaining.`}
+          </p>
+          <ol className="evidence-progress__list">
+            {progressItems.map((item, index) => (
+              <li className={item.selected ? 'is-selected' : ''} key={item.id}>
+                <span aria-hidden="true">{item.selected ? '✓' : index + 1}</span>
+                {item.label}
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {renderActionDock?.(progress)}
+
         <section aria-labelledby="population-evidence-title">
           <h3 id="population-evidence-title">Population evidence</h3>
-          <div className="evidence-choice-grid">
-            {POPULATION_REFERENCES.map((reference) => {
-              const point = findPoint(graphPoints, reference)
-              const selected = selectedPopulation.some((item) =>
-                samePopulationReference(item, reference),
-              )
-              return (
-                <button
-                  aria-pressed={selected}
-                  className={`evidence-choice${selected ? ' is-selected' : ''}`}
-                  data-testid={`evidence-${reference.habitatId}-g${reference.generation}`}
-                  key={`${reference.habitatId}-${reference.generation}`}
-                  onClick={() => onTogglePopulation(reference)}
-                  type="button"
-                >
-                  <strong>
-                    {HABITAT_STUDENT_COPY[reference.habitatId].title}, Generation{' '}
-                    {reference.generation}
-                  </strong>
-                  <span>
-                    {formatGenerationPopulationEvidence(
-                      reference.habitatId,
-                      reference.generation,
-                      point.counts,
-                    )}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+          <p className="evidence-section-intro">Select the beginning and ending population evidence for each habitat.</p>
+          <section aria-labelledby="reef-population-evidence-title" className="evidence-habitat-group">
+            <h4 id="reef-population-evidence-title">Reef fish: Generations 0 and 3</h4>
+            <div className="evidence-choice-grid evidence-choice-grid--pair">
+              {POPULATION_REFERENCES.filter((reference) => reference.habitatId === 'reef_fish').map(renderPopulationChoice)}
+            </div>
+          </section>
+          <section aria-labelledby="moth-population-evidence-title" className="evidence-habitat-group">
+            <h4 id="moth-population-evidence-title">Bark moths: Generations 0 and 3</h4>
+            <div className="evidence-choice-grid evidence-choice-grid--pair">
+              {POPULATION_REFERENCES.filter((reference) => reference.habitatId === 'bark_moths').map(renderPopulationChoice)}
+            </div>
+          </section>
         </section>
 
         <section aria-labelledby="comparison-evidence-title">
@@ -163,31 +221,32 @@ export function EvidenceScreen({
           </button>
         </section>
 
-        <button
-          className="primary-button primary-button--full"
-          data-testid="primary-action"
-          disabled={!isComplete}
-          onClick={onContinue}
-          type="button"
-        >
-          Use this evidence <span aria-hidden="true">→</span>
-        </button>
+        {!renderActionDock && (
+          <button
+            className="primary-button primary-button--full"
+            data-testid="primary-action"
+            disabled={!isComplete}
+            onClick={onContinue}
+            type="button"
+          >
+            Use this evidence <span aria-hidden="true">→</span>
+          </button>
+        )}
       </ScreenCard>
 
-      <div className="evidence-graphs">
+      <section aria-labelledby="full-evidence-data-title" className="evidence-graphs">
+        <h2 id="full-evidence-data-title">Full graphs and data tables</h2>
         <PopulationGraph
           habitatId="reef_fish"
-          organismLabel={HABITAT_STUDENT_COPY.reef_fish.organismLabel}
           points={graphPoints.reef_fish}
           title="Reef fish: percentage of each pattern"
         />
         <PopulationGraph
           habitatId="bark_moths"
-          organismLabel={HABITAT_STUDENT_COPY.bark_moths.organismLabel}
           points={graphPoints.bark_moths}
           title="Bark moths: percentage of each pattern"
         />
-      </div>
+      </section>
     </div>
   )
 }

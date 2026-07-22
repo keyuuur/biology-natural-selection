@@ -34,8 +34,8 @@ export function PredictionPanel({ habitat, onSubmit }: PredictionPanelProps) {
     >
       <div className="prediction-layout">
         <div className={`variation-preview variation-preview--${habitat.id}`} aria-hidden="true">
-          <div className="preview-organism preview-organism--mottled">Mottled</div>
-          <div className="preview-organism preview-organism--solid">Solid</div>
+          <div className="preview-organism preview-organism--mottled">{copy.morphLabels.camouflaged}</div>
+          <div className="preview-organism preview-organism--solid">{copy.morphLabels.conspicuous}</div>
         </div>
         <div>
           <p className="lead">{copy.variationPrompt}</p>
@@ -50,7 +50,7 @@ export function PredictionPanel({ habitat, onSubmit }: PredictionPanelProps) {
                   onChange={() => setOutcome('camouflaged')}
                   type="radio"
                 />
-                <span>The camouflaged mottled pattern will become a larger percentage.</span>
+                <span>The {copy.morphLabels.camouflaged} will become a larger percentage.</span>
               </label>
               <label className={`choice-card${outcome === 'conspicuous' ? ' is-selected' : ''}`}>
                 <input
@@ -59,7 +59,7 @@ export function PredictionPanel({ habitat, onSubmit }: PredictionPanelProps) {
                   onChange={() => setOutcome('conspicuous')}
                   type="radio"
                 />
-                <span>The conspicuous solid pattern will become a larger percentage.</span>
+                <span>The {copy.morphLabels.conspicuous} will become a larger percentage.</span>
               </label>
               <label className={`choice-card${outcome === 'no_change' ? ' is-selected' : ''}`}>
                 <input

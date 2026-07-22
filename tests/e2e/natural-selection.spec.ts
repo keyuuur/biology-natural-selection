@@ -24,7 +24,6 @@ test.describe('Natural Selection Predator–Camouflage study', () => {
     await submitPrediction(page, 'reef_fish')
     await expect(page.getByTestId('habitat-title')).toContainText(/reef|fish/i)
     await expect(page.getByTestId('start-generation')).toBeEnabled()
-    await captureReleasePair(page, testInfo, '02-reef-gameplay')
     await playHabitat(page)
 
     await page.getByRole('button', { name: /review (reef|fish) evidence/i }).click()
@@ -36,9 +35,10 @@ test.describe('Natural Selection Predator–Camouflage study', () => {
     await submitPrediction(page, 'bark_moths')
     await expect(page.getByTestId('habitat-title')).toContainText(/bark|moth/i)
     await expect(page.getByTestId('start-generation')).toBeEnabled()
-    await captureReleasePair(page, testInfo, '04-moth-gameplay')
     await playHabitat(page)
     await page.getByRole('button', { name: /compare (the )?(habitats|evidence)/i }).click()
+    await expect(page.getByTestId('evidence-progress')).toBeVisible()
+    await captureReleasePair(page, testInfo, '09-evidence-selection')
 
     await selectRequiredEvidence(page)
     await completeMisconceptions(page, 'correct')

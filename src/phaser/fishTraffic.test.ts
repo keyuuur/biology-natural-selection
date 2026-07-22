@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { advanceFishTraffic, type FishTrafficState } from './fishTraffic.ts'
+import { fishCurveOffset, type FishMovementProfile } from './layout.ts'
 
 function fish(overrides: Partial<FishTrafficState>): FishTrafficState {
   return {
@@ -36,6 +37,7 @@ describe('fish traffic solver', () => {
     expect(next.filter((state) => state.collisionTurn)).toHaveLength(1)
     expect(next.every((state) => state.collisionBlocked)).toBe(true)
     expect(Math.abs((next[1]?.x ?? 0) - (next[0]?.x ?? 0))).toBeGreaterThanOrEqual(76)
+    expect(next.some(({ collisionCooldownMs }) => collisionCooldownMs === 450)).toBe(true)
 
     const repeated = advanceFishTraffic(next, 16)
     expect(repeated.filter((state) => state.collisionTurn)).toHaveLength(0)
@@ -83,6 +85,49 @@ describe('fish traffic solver', () => {
     expect(turns).toBeLessThanOrEqual(40)
   })
 
+  it('keeps collision protection intact while fish follow capped curved paths', () => {
+    const profiles: Record<string, FishMovementProfile> = {
+      'curve-0': {
+        kind: 'fish_patrol', speedPxPerSecond: 31, verticalAmplitude: 10, phase: 0, curvePeriodMs: 1_450,
+      },
+      'curve-1': {
+        kind: 'fish_patrol', speedPxPerSecond: 38, verticalAmplitude: 7, phase: 1.3, curvePeriodMs: 1_760,
+      },
+      'curve-2': {
+        kind: 'fish_patrol', speedPxPerSecond: 44, verticalAmplitude: 5, phase: 2.1, curvePeriodMs: 2_030,
+      },
+    }
+    const centerlines: Record<string, number> = {
+      'curve-0': 100,
+      'curve-1': 104,
+      'curve-2': 108,
+    }
+    let states = Object.keys(profiles).map((id, index) => fish({
+      id,
+      x: 84 + index * 86,
+      y: centerlines[id]!,
+      direction: index % 2 === 0 ? 1 : -1,
+      speedPxPerSecond: profiles[id]!.speedPxPerSecond,
+      patrolLeft: 40 + index * 74,
+      patrolRight: 166 + index * 74,
+    }))
+
+    for (let frame = 0; frame < 720; frame += 1) {
+      const elapsedMs = frame * (1000 / 60)
+      states = states.map((state) => ({
+        ...state,
+        y: centerlines[state.id]! + fishCurveOffset(profiles[state.id]!, elapsedMs),
+      }))
+      const next = advanceFishTraffic(states, 1000 / 60)
+      for (let first = 0; first < next.length; first += 1) {
+        for (let second = first + 1; second < next.length; second += 1) {
+          expect(overlaps(next[first]!, next[second]!)).toBe(false)
+        }
+      }
+      states = next
+    }
+  })
+
   it('falls back to the previous safe positions for a large frame delta', () => {
     const next = advanceFishTraffic([
       fish({ id: 'left', x: 100, direction: 1, patrolLeft: 40, patrolRight: 240 }),
@@ -116,3 +161,8 @@ describe('fish traffic solver', () => {
     ])
   })
 })
+
+function overlaps(first: FishTrafficState, second: FishTrafficState): boolean {
+  return Math.abs(first.x - second.x) < (first.hitWidth + second.hitWidth) / 2 + 4 &&
+    Math.abs(first.y - second.y) < (first.hitHeight + second.hitHeight) / 2 + 4
+}

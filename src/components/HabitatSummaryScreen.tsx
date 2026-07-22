@@ -51,7 +51,6 @@ export function HabitatSummaryScreen({
 
       <PopulationGraph
         habitatId={habitatId}
-        organismLabel={copy.organismLabel}
         points={points}
         title={`${copy.title}: Generations 0–3`}
       />

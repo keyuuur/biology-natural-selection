@@ -1,7 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PhaserControllerEvents, PhaserSceneController } from '../phaser/PhaserSceneController.ts'
+import { diagnosticsWithClientCoordinates } from '../phaser/diagnosticsCoordinates.ts'
 import { loadPhaserSceneController } from '../phaser/loadPhaserSceneController.ts'
 import type { HabitatId, PlayerRoundMetrics } from '../simulation/index.ts'
 import { HabitatGame } from './HabitatGame.tsx'
@@ -89,7 +90,68 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
+describe('HabitatGame QA coordinate diagnostics', () => {
+  it('keeps visual, hit, and patrol bounds in the same CSS coordinate space', () => {
+    const canvas = {
+      width: 400,
+      height: 200,
+      getBoundingClientRect: () => ({
+        bottom: 150,
+        height: 100,
+        left: 100,
+        right: 300,
+        top: 50,
+        width: 200,
+        x: 100,
+        y: 50,
+        toJSON: () => ({}),
+      }),
+    } as unknown as HTMLCanvasElement
+
+    const result = diagnosticsWithClientCoordinates({
+      actors: [{
+        center: { x: 80, y: 60 },
+        hitBounds: { x: 44, y: 36, width: 72, height: 48 },
+        visualBounds: { x: 49, y: 45, width: 62, height: 30 },
+        patrolBounds: { x: 30, y: 30, width: 120, height: 70 },
+      }],
+    }, canvas) as {
+      actors: Array<Record<string, { x: number; y: number; width?: number; height?: number }>>
+    }
+
+    const actor = result.actors[0]!
+    expect(actor.center).toEqual({ x: 140, y: 80 })
+    expect(actor.hitBounds).toEqual({ x: 122, y: 68, width: 36, height: 24 })
+    expect(actor.visualBounds).toEqual({ x: 124.5, y: 72.5, width: 31, height: 15 })
+    expect(actor.patrolBounds).toEqual({ x: 115, y: 65, width: 60, height: 35 })
+    expect(actor.canvasVisualBounds).toEqual({ x: 49, y: 45, width: 62, height: 30 })
+  })
+})
+
 describe('HabitatGame renderer recovery', () => {
+  it.each([
+    { round: studyRounds[0], camouflagedLabel: 'reef-matched pattern', conspicuousLabel: 'high-contrast pattern' },
+    { round: studyRounds[3], camouflagedLabel: 'mottled bark pattern', conspicuousLabel: 'solid light pattern' },
+  ])('uses the correct habitat labels in the renderer fallback', async ({ round, camouflagedLabel, conspicuousLabel }) => {
+    loadController.mockRejectedValue(new Error('The renderer failed.'))
+    render(<HabitatGame {...roundProps(round, vi.fn())} />)
+
+    const fallback = await screen.findByTestId('dom-observation-fallback')
+    expect(fallback.textContent).toContain(`20 ${camouflagedLabel}`)
+    expect(fallback.textContent).toContain(`20 ${conspicuousLabel}`)
+  })
+
+  it('moves focus to the renderer fallback heading when graphics cannot load', async () => {
+    loadController.mockRejectedValue(new Error('The renderer failed.'))
+    render(<HabitatGame {...roundProps(studyRounds[0], vi.fn())} />)
+
+    const fallback = await screen.findByTestId('dom-observation-fallback')
+    const heading = within(fallback).getByRole('heading', { name: /reef fish study.*generation 1/i })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(heading.getAttribute('data-stage-heading')).toBe('')
+    expect(heading.getAttribute('tabindex')).toBe('-1')
+  })
+
   it.each([
     ['lazy import rejection', 'The Phaser module could not load.'],
     ['controller construction rejection', 'The Phaser controller could not start.'],
@@ -228,6 +290,12 @@ describe('HabitatGame renderer recovery', () => {
 
     expect(screen.getByTestId('dom-observation-fallback')).not.toBeNull()
     expect(controller.dispose).toHaveBeenCalledTimes(1)
+    // Focusing the fallback heading may leave one environment-level focus
+    // task queued in JSDOM; flush it before asserting that the renderer itself
+    // left no timers behind.
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync()
+    })
     expect(vi.getTimerCount()).toBe(0)
     vi.useRealTimers()
     await completeFallbackStudy(view.rerender, onComplete)

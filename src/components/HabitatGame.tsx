@@ -7,7 +7,14 @@ import type {
   SelectedTimingMode,
 } from '../simulation/index.ts'
 import { deriveSeed } from '../simulation/index.ts'
+import {
+  diagnosticsBridgeEnabled,
+  interactionQaParams,
+  readUnsignedE2eSeed,
+} from '../testing/e2eControls.ts'
+import { HABITAT_STUDENT_COPY } from '../learning/index.ts'
 import type { PhaserSceneController } from '../phaser/PhaserSceneController.ts'
+import { diagnosticsWithClientCoordinates } from '../phaser/diagnosticsCoordinates.ts'
 import { loadPhaserSceneController } from '../phaser/loadPhaserSceneController.ts'
 import type { SceneOrganism, SceneRound } from '../phaser/HabitatScene.ts'
 
@@ -23,6 +30,7 @@ type HabitatGameProps = {
   movementScale: number
   hitAreaScale: number
   forceRendererFailure?: boolean
+  onAnnounce?: (message: string) => void
   onComplete: (metrics: PlayerRoundMetrics) => void
 }
 
@@ -33,6 +41,12 @@ type MutableMetrics = {
   manualCatches: MorphCounts
   misses: number
   protectedEscapes: number
+  elapsedMs: number
+}
+
+type AcceptedCaptureTrace = {
+  organismId: string
+  morphId: MorphId
   elapsedMs: number
 }
 
@@ -47,13 +61,6 @@ type InteractionQaBridge = {
 
 type QaWindow = Window & {
   __NS_INTERACTION_QA__?: InteractionQaBridge
-}
-
-type CanvasActorDiagnostic = {
-  center?: { x: number; y: number }
-  hitBounds?: { x: number; y: number; width: number; height: number }
-  patrolBounds?: { x: number; y: number; width: number; height: number }
-  [key: string]: unknown
 }
 
 function emptyMetrics(): MutableMetrics {
@@ -93,70 +100,9 @@ function setControllerPause(
   }
 }
 
-function diagnosticsWithClientCoordinates(
-  diagnostics: Record<string, unknown>,
-  canvas: HTMLCanvasElement | null,
-): Record<string, unknown> {
-  const rawFrameMetrics = diagnostics.frameMetrics
-  const frameMetrics = rawFrameMetrics && typeof rawFrameMetrics === 'object'
-    ? {
-        ...rawFrameMetrics,
-        medianFrameMs:
-          Reflect.get(rawFrameMetrics, 'medianFrameTimeMs') ?? Reflect.get(rawFrameMetrics, 'medianFrameMs'),
-        p95FrameMs:
-          Reflect.get(rawFrameMetrics, 'p95FrameTimeMs') ?? Reflect.get(rawFrameMetrics, 'p95FrameMs'),
-      }
-    : rawFrameMetrics
-  if (!canvas || !Array.isArray(diagnostics.actors)) {
-    return { ...diagnostics, frameMetrics }
-  }
-  const rect = canvas.getBoundingClientRect()
-  const scaleX = canvas.width > 0 ? rect.width / canvas.width : 1
-  const scaleY = canvas.height > 0 ? rect.height / canvas.height : 1
-  const actors = (diagnostics.actors as CanvasActorDiagnostic[]).map((actor) => {
-    const canvasCenter = actor.center
-    const canvasHitBounds = actor.hitBounds
-    const canvasPatrolBounds = actor.patrolBounds
-    return {
-      ...actor,
-      ...(canvasCenter
-        ? {
-            canvasCenter,
-            center: {
-              x: rect.left + canvasCenter.x * scaleX,
-              y: rect.top + canvasCenter.y * scaleY,
-            },
-          }
-        : {}),
-      ...(canvasHitBounds
-        ? {
-            canvasHitBounds,
-            hitBounds: {
-              x: rect.left + canvasHitBounds.x * scaleX,
-              y: rect.top + canvasHitBounds.y * scaleY,
-              width: canvasHitBounds.width * scaleX,
-              height: canvasHitBounds.height * scaleY,
-            },
-          }
-        : {}),
-      ...(canvasPatrolBounds
-        ? {
-            canvasPatrolBounds,
-            patrolBounds: {
-              x: rect.left + canvasPatrolBounds.x * scaleX,
-              y: rect.top + canvasPatrolBounds.y * scaleY,
-              width: canvasPatrolBounds.width * scaleX,
-              height: canvasPatrolBounds.height * scaleY,
-            },
-          }
-        : {}),
-    }
-  })
-  return { ...diagnostics, actors, frameMetrics }
-}
-
 export function HabitatGame(props: HabitatGameProps) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const fallbackHeadingRef = useRef<HTMLHeadingElement>(null)
   const controllerRef = useRef<PhaserSceneController | null>(null)
   const rendererBrokenRef = useRef(props.forceRendererFailure ?? false)
   const rendererInitializationRef = useRef(0)
@@ -166,10 +112,16 @@ export function HabitatGame(props: HabitatGameProps) {
   const resolvingTimeoutRef = useRef<number | null>(null)
   const handledOrganismIdsRef = useRef(new Set<string>())
   const metricsRef = useRef<MutableMetrics>(emptyMetrics())
+  const firstAcceptedCatchElapsedMsRef = useRef<number | null>(null)
+  const acceptedCaptureTraceRef = useRef<AcceptedCaptureTrace[]>([])
   const visibilityHandlerRef = useRef<(() => void) | null>(null)
   const blurHandlerRef = useRef<(() => void) | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
+  const qaPlacementSeed = useMemo(
+    () => readUnsignedE2eSeed(interactionQaParams(), 'e2ePlacementSeed'),
+    [],
+  )
 
   const roundId = `${props.habitatId}:g${props.generation}:s${props.roundSeed}`
   const organisms = useMemo(
@@ -194,7 +146,9 @@ export function HabitatGame(props: HabitatGameProps) {
       ? 'Observation mode is active because graphics are unavailable.'
       : 'Preparing habitat…',
   )
-  const [liveMessage, setLiveMessage] = useState('')
+  function announce(message: string): void {
+    propsRef.current.onAnnounce?.(message)
+  }
 
   function transition(nextStatus: RoundStatus): void {
     statusRef.current = nextStatus
@@ -231,9 +185,7 @@ export function HabitatGame(props: HabitatGameProps) {
   }
 
   useEffect(() => {
-    const query = new URLSearchParams(window.location.search)
-    const qaBuild = import.meta.env.DEV || import.meta.env.VITE_INTERACTION_QA === '1'
-    if (!qaBuild || (query.get('qa') !== '1' && query.get('e2e') !== '1')) return
+    if (!diagnosticsBridgeEnabled()) return
 
     const qaWindow = window as QaWindow
     const installedQaBridge: InteractionQaBridge = {
@@ -250,8 +202,12 @@ export function HabitatGame(props: HabitatGameProps) {
           roundStatus: statusRef.current,
           remainingMs: remainingMsRef.current,
           manualCatches: total(metricsRef.current.manualCatches),
+          manualCatchesByMorph: { ...metricsRef.current.manualCatches },
           misses: metricsRef.current.misses,
           protectedAttempts: metricsRef.current.protectedEscapes,
+          firstAcceptedCatchElapsedMs: firstAcceptedCatchElapsedMsRef.current,
+          acceptedCaptureTrace: acceptedCaptureTraceRef.current.map((entry) => ({ ...entry })),
+          roundElapsedMs: metricsRef.current.elapsedMs,
           canvasCount: hostRef.current?.querySelectorAll('canvas').length ?? 0,
           documentCanvasCount: document.querySelectorAll('.habitat-canvas-host canvas').length,
         }
@@ -275,7 +231,7 @@ export function HabitatGame(props: HabitatGameProps) {
     const shouldAnnounce = nextSecond > 0 && (nextSecond % 10 === 0 || nextSecond <= 5)
     if (shouldAnnounce && lastAnnouncedSecondRef.current !== nextSecond) {
       lastAnnouncedSecondRef.current = nextSecond
-      setLiveMessage(`${nextSecond} seconds remaining.`)
+      announce(`${nextSecond} seconds remaining.`)
     }
   }
 
@@ -332,7 +288,7 @@ export function HabitatGame(props: HabitatGameProps) {
       movementScale: current.movementScale,
       hitAreaScale: current.hitAreaScale,
       reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-      placementSeed: deriveSeed(current.roundSeed, 'placement'),
+      placementSeed: qaPlacementSeed ?? deriveSeed(current.roundSeed, 'placement'),
       movementSeed: deriveSeed(current.roundSeed, 'movement'),
     }
   }
@@ -370,7 +326,7 @@ export function HabitatGame(props: HabitatGameProps) {
       ? '12 of 12 caught. Calculating survivors and offspring.'
       : `You caught ${caught}. The model completes the remaining ${12 - caught} predation events.`
     setRendererMessage(message)
-    setLiveMessage(message)
+    announce(message)
     resolvingTimeoutRef.current = window.setTimeout(() => {
       resolvingTimeoutRef.current = null
       deliverCompletion('interactive', false)
@@ -401,7 +357,9 @@ export function HabitatGame(props: HabitatGameProps) {
     }
 
     completionLockedRef.current = false
-    setRendererMessage(`${message} Observation mode is available.`)
+    const fallbackMessage = `${message} Observation mode is available.`
+    setRendererMessage(fallbackMessage)
+    announce(fallbackMessage)
     transition('fallback')
   }
 
@@ -414,12 +372,13 @@ export function HabitatGame(props: HabitatGameProps) {
     completionDeliveredRef.current = false
     handledOrganismIdsRef.current.clear()
     metricsRef.current = emptyMetrics()
+    firstAcceptedCatchElapsedMsRef.current = null
+    acceptedCaptureTraceRef.current = []
     setDisplayMetrics(metricsRef.current)
     remainingMsRef.current = props.durationMs
     lastVisibleSecondRef.current = Math.ceil(props.durationMs / 1000)
     lastAnnouncedSecondRef.current = null
     setRemainingMs(props.durationMs)
-    setLiveMessage('')
     if (rendererBrokenRef.current) {
       transition('fallback')
       setRendererMessage('Observation mode is active because graphics are unavailable.')
@@ -432,6 +391,15 @@ export function HabitatGame(props: HabitatGameProps) {
       setRendererMessage('Preparing habitat…')
     }
   }, [roundId, props.active, props.durationMs, props.forceRendererFailure])
+
+  // A renderer failure happens inside an active round, so the app-level
+  // stage focus effect does not run. Move focus to the native fallback heading
+  // after it appears so keyboard and screen-reader users receive the new
+  // study path rather than being left on a removed canvas control.
+  useEffect(() => {
+    if (status !== 'fallback' || !props.active) return
+    fallbackHeadingRef.current?.focus({ preventScroll: true })
+  }, [roundId, status, props.active])
 
   useEffect(() => {
     if (props.forceRendererFailure || rendererBrokenRef.current) return
@@ -500,7 +468,7 @@ export function HabitatGame(props: HabitatGameProps) {
               current.protectedEscapes += 1
               controllerRef.current?.showEscape(organismId)
               snapshotMetrics()
-              setLiveMessage('Protected for comparison — enough parents must remain.')
+              announce('Protected for comparison — enough parents must remain.')
               return
             }
 
@@ -510,9 +478,13 @@ export function HabitatGame(props: HabitatGameProps) {
             }
             nextCatches[morphId] += 1
             current.manualCatches = nextCatches
+            if (firstAcceptedCatchElapsedMsRef.current === null) {
+              firstAcceptedCatchElapsedMsRef.current = elapsedMs
+            }
+            acceptedCaptureTraceRef.current.push({ organismId, morphId, elapsedMs })
             controllerRef.current?.confirmCapture(organismId)
             snapshotMetrics()
-            setLiveMessage(`Caught. ${total(nextCatches)} of 12.`)
+            announce(`Caught. ${total(nextCatches)} of 12.`)
 
             if (total(nextCatches) === 12) beginResolving('manual')
           },
@@ -521,7 +493,7 @@ export function HabitatGame(props: HabitatGameProps) {
             metricsRef.current.misses += 1
             metricsRef.current.elapsedMs = elapsedMs
             snapshotMetrics()
-            setLiveMessage('Miss — no penalty.')
+            announce('Miss — no penalty.')
           },
           onTick: ({ roundId: eventRoundId, remainingMs: nextRemaining }) => {
             if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
@@ -553,7 +525,7 @@ export function HabitatGame(props: HabitatGameProps) {
             setControllerPause(initializedController, 'visibility', true)
             if (statusRef.current === 'running') transition('paused')
             setRendererMessage('Study paused. Resume when you are ready.')
-            setLiveMessage('Study paused. The timer is stopped.')
+            announce('Study paused. The timer is stopped.')
           }
         }
         document.addEventListener('visibilitychange', visibilityHandler)
@@ -565,7 +537,7 @@ export function HabitatGame(props: HabitatGameProps) {
           setControllerPause(initializedController, 'blur', true)
           if (statusRef.current === 'running') transition('paused')
           setRendererMessage('Study paused. Resume when you are ready.')
-          setLiveMessage('Study paused. The timer is stopped.')
+          announce('Study paused. The timer is stopped.')
         }
         window.addEventListener('blur', blurHandler)
         blurHandlerRef.current = blurHandler
@@ -596,12 +568,14 @@ export function HabitatGame(props: HabitatGameProps) {
     if (!controller || statusRef.current !== 'ready') return
     handledOrganismIdsRef.current.clear()
     metricsRef.current = emptyMetrics()
+    firstAcceptedCatchElapsedMsRef.current = null
+    acceptedCaptureTraceRef.current = []
     setDisplayMetrics(metricsRef.current)
     remainingMsRef.current = props.durationMs
     lastVisibleSecondRef.current = Math.ceil(props.durationMs / 1000)
     lastAnnouncedSecondRef.current = null
     setRemainingMs(props.durationMs)
-    setLiveMessage('Generation started. Tap whichever organisms you notice first.')
+    announce('Generation started. Tap whichever organisms you notice first.')
     transition('running')
     controller.startGeneration(currentSceneRound())
   }
@@ -613,17 +587,29 @@ export function HabitatGame(props: HabitatGameProps) {
     setControllerPause(controller, 'blur', false)
     transition('running')
     setRendererMessage('Generation resumed.')
-    setLiveMessage('Generation resumed. The timer is running.')
+    announce('Generation resumed. The timer is running.')
   }
 
   if (status === 'fallback') {
+    const labels = HABITAT_STUDENT_COPY[props.habitatId].morphLabels
     return (
-      <section className="observation-fallback" data-testid="dom-observation-fallback">
+      <section
+        aria-labelledby={`renderer-fallback-${props.habitatId}`}
+        className="observation-fallback"
+        data-testid="dom-observation-fallback"
+      >
         <p className="eyebrow">Accessible observation mode</p>
-        <h3>{props.habitatTitle} · Generation {props.generation}</h3>
+        <h3
+          data-stage-heading=""
+          id={`renderer-fallback-${props.habitatId}`}
+          ref={fallbackHeadingRef}
+          tabIndex={-1}
+        >
+          {props.habitatTitle} · Generation {props.generation}
+        </h3>
         <div className="fallback-population" aria-label="Starting population">
-          <span><i className="morph-swatch morph-swatch--camo" />{props.counts.camouflaged} mottled</span>
-          <span><i className="morph-swatch morph-swatch--solid" />{props.counts.conspicuous} solid</span>
+          <span><i className="morph-swatch morph-swatch--camo" />{props.counts.camouflaged} {labels.camouflaged}</span>
+          <span><i className="morph-swatch morph-swatch--solid" />{props.counts.conspicuous} {labels.conspicuous}</span>
         </div>
         <p>{rendererMessage}</p>
         <p>The model will complete all 12 predation events using the same visibility settings. You can continue through every science step.</p>
@@ -640,11 +626,12 @@ export function HabitatGame(props: HabitatGameProps) {
 
   return (
     <section className="habitat-game" aria-labelledby="habitat-title">
-      <p className="sr-only" aria-atomic="true" aria-live="polite">{liveMessage}</p>
       <div className="habitat-game__heading">
         <div>
           <p className="eyebrow">Predator field round</p>
-          <h2 data-testid="habitat-title" id="habitat-title">{props.habitatTitle}</h2>
+          <h2 data-stage-heading="" data-testid="habitat-title" id="habitat-title" tabIndex={-1}>
+            {props.habitatTitle}
+          </h2>
         </div>
         <div className="round-timer" aria-label={`${Math.ceil(remainingMs / 1000)} seconds remaining`}>
           <strong>{Math.ceil(remainingMs / 1000)}s</strong>

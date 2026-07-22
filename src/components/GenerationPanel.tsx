@@ -16,6 +16,7 @@ export function GenerationPanel({ habitat, result, onContinue }: GenerationPanel
   const isFinal = result.generation === habitat.generationCount
   const finalLabel = habitat.id === 'reef_fish' ? 'Review reef evidence' : 'Compare the habitats'
   const copy = HABITAT_STUDENT_COPY[habitat.id]
+  const { camouflaged: camouflagedLabel, conspicuous: conspicuousLabel } = copy.morphLabels
 
   return (
     <ScreenCard
@@ -38,7 +39,7 @@ export function GenerationPanel({ habitat, result, onContinue }: GenerationPanel
         <div className="generation-flow" aria-label="Generation population flow">
           <section>
             <span>1</span><strong>40 started</strong>
-            <small>{result.startingCounts.camouflaged} mottled · {result.startingCounts.conspicuous} solid</small>
+            <small>{result.startingCounts.camouflaged} {camouflagedLabel} · {result.startingCounts.conspicuous} {conspicuousLabel}</small>
           </section>
           <i aria-hidden="true">→</i>
           <section>
@@ -51,23 +52,23 @@ export function GenerationPanel({ habitat, result, onContinue }: GenerationPanel
           <i aria-hidden="true">→</i>
           <section>
             <span>3</span><strong>28 survived</strong>
-            <small>{result.survivorCounts.camouflaged} mottled · {result.survivorCounts.conspicuous} solid</small>
+            <small>{result.survivorCounts.camouflaged} {camouflagedLabel} · {result.survivorCounts.conspicuous} {conspicuousLabel}</small>
           </section>
           <i aria-hidden="true">→</i>
           <section>
             <span>4</span><strong>40 offspring</strong>
-            <small>{result.offspringCounts.camouflaged} mottled · {result.offspringCounts.conspicuous} solid</small>
+            <small>{result.offspringCounts.camouflaged} {camouflagedLabel} · {result.offspringCounts.conspicuous} {conspicuousLabel}</small>
           </section>
         </div>
 
         <div className="rate-comparison">
           <section className="morph-stat morph-stat--camo">
-            <p>Mottled-pattern survival rate</p>
+            <p>{camouflagedLabel} survival rate</p>
             <strong>{percent(result.survivorCounts.camouflaged, result.startingCounts.camouflaged)}%</strong>
             <span>{result.survivorCounts.camouflaged} of {result.startingCounts.camouflaged} survived</span>
           </section>
           <section className="morph-stat morph-stat--solid">
-            <p>Solid-pattern survival rate</p>
+            <p>{conspicuousLabel} survival rate</p>
             <strong>{percent(result.survivorCounts.conspicuous, result.startingCounts.conspicuous)}%</strong>
             <span>{result.survivorCounts.conspicuous} of {result.startingCounts.conspicuous} survived</span>
           </section>
@@ -76,6 +77,12 @@ export function GenerationPanel({ habitat, result, onContinue }: GenerationPanel
         <div className="model-disclosure">
           <p>{MODEL_SAFEGUARD_DISCLOSURES.automaticCompletion}</p>
           {result.protectedEscapes > 0 && <p>{MODEL_SAFEGUARD_DISCLOSURES.protectedEscape}</p>}
+          {result.generation === 1 && (
+            <>
+              <p data-testid="fixed-population-disclosure">{MODEL_SAFEGUARD_DISCLOSURES.fixedPopulation}</p>
+              <p data-testid="model-boundary-disclosure">{MODEL_SAFEGUARD_DISCLOSURES.modelBoundary}</p>
+            </>
+          )}
         </div>
       </div>
     </ScreenCard>

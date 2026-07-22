@@ -16,15 +16,14 @@ import {
   type SelectedTimingMode,
 } from '../simulation/index.ts'
 import { createMisconceptionQuestions, type HabitatOutcome } from '../learning/index.ts'
-import { completedChecks, type CerDraft, type GameSession } from './sessionTypes.ts'
+import { completedChecks, type CerDraft, type GameSession, type StudyRoute } from './sessionTypes.ts'
 import { createFreshSession, sessionReducer } from './sessionReducer.ts'
+import { e2eControlParams } from '../testing/e2eControls.ts'
 
 const CLIENT_VERSION = '0.2.0'
 
 function querySeed(): number | undefined {
-  const params = new URLSearchParams(window.location.search)
-  if (params.get('e2e') !== '1') return undefined
-  const source = params.get('e2eSeed')
+  const source = e2eControlParams()?.get('e2eSeed')
   if (!source) return undefined
   const numeric = Number(source)
   if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 0xffff_ffff) return numeric
@@ -154,6 +153,8 @@ export function useGameSession() {
     begin: () => dispatch({ type: 'BEGIN' }),
     selectTiming: (timingMode: SelectedTimingMode) =>
       dispatch({ type: 'SELECT_TIMING', timingMode }),
+    startStudy: (studyRoute: StudyRoute, timingMode?: SelectedTimingMode) =>
+      dispatch({ type: 'START_STUDY', studyRoute, timingMode }),
     startPrediction: () => dispatch({ type: 'START_PREDICTION' }),
     submitPrediction: (outcome: MorphId | 'no_change', reason: string) =>
       dispatch({

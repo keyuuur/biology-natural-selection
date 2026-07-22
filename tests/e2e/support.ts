@@ -17,6 +17,7 @@ export function testUrl(options: {
   failStorage?: boolean
   qa?: boolean
   roundMs?: number
+  placementSeed?: number
 }) {
   const query = new URLSearchParams({
     e2e: '1',
@@ -27,6 +28,7 @@ export function testUrl(options: {
   if (options.failRenderer) query.set('e2eRenderer', 'fail')
   if (options.failStorage) query.set('e2eStorage', 'fail')
   if (options.qa) query.set('qa', '1')
+  if (options.placementSeed !== undefined) query.set('e2ePlacementSeed', String(options.placementSeed))
   return `/?${query.toString()}`
 }
 
@@ -44,10 +46,19 @@ export async function expectResponsive(page: Page) {
   }
 }
 
+async function expectStageDockUsable(page: Page, testId: string) {
+  const action = page.getByTestId(testId)
+  await expect(action).toBeVisible()
+  const box = await action.boundingBox()
+  expect(box?.height ?? 0, `${testId} must remain a 56px touch target.`).toBeGreaterThanOrEqual(56)
+  await expectResponsive(page)
+}
+
 export async function captureReleasePair(
   page: Page,
   testInfo: TestInfo,
   name: string,
+  options: { fullPage?: boolean } = {},
 ) {
   await mkdir(releaseScreenshotDirectory, { recursive: true })
 
@@ -70,7 +81,7 @@ export async function captureReleasePair(
     })
     const filename = `${name}-${orientation}.png`
     const screenshotPath = path.join(releaseScreenshotDirectory, filename)
-    await page.screenshot({ path: screenshotPath, fullPage: true })
+    await page.screenshot({ path: screenshotPath, fullPage: options.fullPage ?? true })
     await skipLink.evaluate((element) => {
       const htmlElement = element as HTMLElement
       element.removeAttribute('data-screenshot-hidden')
@@ -84,8 +95,9 @@ export async function captureReleasePair(
 }
 
 export async function chooseTiming(page: Page, mode: 'Standard' | 'Extended') {
+  await page.getByTestId('study-route-predator').check()
   await page.getByRole('radio', { name: new RegExp(mode, 'i') }).check()
-  await page.getByRole('button', { name: /begin (the )?(study|mission)/i }).click()
+  await page.getByRole('button', { name: /begin predator study/i }).click()
 }
 
 export async function submitPrediction(
@@ -93,8 +105,11 @@ export async function submitPrediction(
   habitat: 'reef_fish' | 'bark_moths',
 ) {
   const prediction = page.getByTestId(`prediction-${habitat}`)
+  const camouflagedLabel = habitat === 'reef_fish'
+    ? /reef-matched pattern.*larger percentage/i
+    : /mottled bark pattern.*larger percentage/i
   await prediction
-    .getByRole('radio', { name: /camouflaged.*larger percentage/i })
+    .getByRole('radio', { name: camouflagedLabel })
     .check()
   await prediction
     .getByRole('textbox')
@@ -107,6 +122,14 @@ export async function playGeneration(page: Page, generation: 1 | 2 | 3) {
   const summary = page.getByTestId('generation-summary')
   await expect(summary).toBeVisible()
   await expect(summary).toHaveAttribute('data-generation', String(generation))
+  if (generation === 1) {
+    await expect(page.getByTestId('fixed-population-disclosure')).toContainText(
+      /Real population sizes do not always stay constant/i,
+    )
+    await expect(page.getByTestId('model-boundary-disclosure')).toContainText(
+      /does not claim that nature always follows one exact sequence/i,
+    )
+  }
 }
 
 export async function playHabitat(page: Page) {
@@ -150,6 +173,8 @@ export async function completeMisconceptions(
     await question.getByTestId(correctMisconceptionOptions[index]).click()
     await question.getByRole('button', { name: /check answer/i }).click()
     await expect(question.getByTestId('answer-feedback')).toContainText(/correct/i)
+    await expect(page.locator('[aria-live="polite"]')).toHaveCount(1)
+    await expect(page.locator('[role="status"]')).toHaveCount(0)
     await question.getByRole('button', { name: /continue/i }).click()
   }
 }
@@ -164,7 +189,8 @@ export async function selectRequiredEvidence(page: Page) {
   ]) {
     await page.getByTestId(id).click()
   }
-  await page.getByRole('button', { name: /use (this )?evidence|continue/i }).click()
+  await expectStageDockUsable(page, 'evidence-dock-action')
+  await page.getByTestId('evidence-dock-action').click()
 }
 
 export async function completeCer(page: Page) {
@@ -174,7 +200,8 @@ export async function completeCer(page: Page) {
     .fill(
       'The inherited camouflage variation affected which organisms were caught. Survivors reproduced, so their offspring made that trait a different percentage of the later population.',
     )
-  await page.getByRole('button', { name: /complete (the )?(cer|field report|study)/i }).click()
+  await expectStageDockUsable(page, 'cer-dock-action')
+  await page.getByTestId('cer-dock-action').click()
 }
 
 export async function finishCurrentHabitat(page: Page, completedGenerations = 0) {

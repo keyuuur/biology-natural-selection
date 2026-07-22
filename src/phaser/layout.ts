@@ -32,6 +32,7 @@ export type FishMovementProfile = {
   speedPxPerSecond: number
   verticalAmplitude: number
   phase: number
+  curvePeriodMs: number
 }
 
 export type MothMovementProfile = {
@@ -75,6 +76,7 @@ const EDGE_X = 4
 const EDGE_TOP = 28
 const EDGE_BOTTOM = 60
 const ACTOR_GAP = 4
+export const MAX_FISH_CURVE_OFFSET_PX = 10
 
 export function seededUnit(seed: number): () => number {
   let value = seed >>> 0
@@ -128,8 +130,11 @@ export function createMovementProfile(
     return {
       kind: 'fish_patrol',
       speedPxPerSecond: baseSpeed * movementScale * (reducedMotion ? 0.5 : 1),
-      verticalAmplitude: reducedMotion ? 0 : random() * 7,
+      // The curve is deliberately modest: fish still travel mainly left/right,
+      // but no longer read as perfectly straight lanes.
+      verticalAmplitude: reducedMotion ? 0 : 3 + random() * 7,
       phase: random() * Math.PI * 2,
+      curvePeriodMs: 1_300 + random() * 900,
     }
   }
 
@@ -157,8 +162,8 @@ export function createActorLayout(round: LayoutRound, viewport: Viewport): Actor
   const cellWidth = usableWidth / COLUMNS
   const cellHeight = usableHeight / ROWS
   const motionAssignments = isReef
-    ? createBalancedMotionAssignments(shuffled, round)
-    : new Map<string, BalancedMotionAssignment>()
+    ? createSlotMotionAssignments(shuffled, round)
+    : new Map<string, SlotMotionAssignment>()
 
   return shuffled.map((organism, slot) => {
     const column = slot % COLUMNS
@@ -180,17 +185,20 @@ export function createActorLayout(round: LayoutRound, viewport: Viewport): Actor
     const correctedRandom = seededUnit(
       round.placementSeed ^ Math.imul(slot + 1, 0x27d4eb2d) ^ 0x7f4a7c15,
     )
+    // The 8 x 5 cells are a safety constraint, not a visual arrangement.
+    // Small, deterministic cross-cell rhythm breaks up the row/column impression
+    // while every starting hit region remains inside its own safe cell.
+    const horizontalStagger = (((row * 3 + column * 5) % 5) - 2) * jitterX * 0.11
+    const verticalStagger = (((column * 2 + row * 3) % 5) - 2) * jitterY * 0.13
     const correctedCenterX = clamp(
       cellX + cellWidth / 2 +
-        (correctedRandom() * 2 - 1) * jitterX * 0.9 +
-        (row % 2 === 0 ? -1 : 1) * jitterX * 0.08,
+        (correctedRandom() * 2 - 1) * jitterX * 0.7 + horizontalStagger,
       hitRegion.width / 2,
       viewport.width - hitRegion.width / 2,
     )
     const correctedCenterY = clamp(
       cellY + cellHeight / 2 +
-        (correctedRandom() * 2 - 1) * jitterY * 0.88 +
-        (column % 2 === 0 ? -1 : 1) * Math.min(6, jitterY * 0.12),
+        (correctedRandom() * 2 - 1) * jitterY * 0.68 + verticalStagger,
       hitRegion.height / 2,
       viewport.height - hitRegion.height / 2,
     )
@@ -238,47 +246,51 @@ export function createActorLayout(round: LayoutRound, viewport: Viewport): Actor
   })
 }
 
-type BalancedMotionAssignment = {
+export function fishCurveOffset(
+  profile: FishMovementProfile,
+  movementElapsedMs: number,
+): number {
+  const amplitude = Math.min(MAX_FISH_CURVE_OFFSET_PX, Math.abs(profile.verticalAmplitude))
+  if (amplitude === 0) return 0
+  return Math.sin(movementElapsedMs / profile.curvePeriodMs + profile.phase) * amplitude
+}
+
+type SlotMotionAssignment = {
   profileId: string
   direction: -1 | 1
   profile: FishMovementProfile
 }
 
-function createBalancedMotionAssignments(
+function createSlotMotionAssignments(
   organisms: readonly LayoutOrganism[],
   round: LayoutRound,
-): Map<string, BalancedMotionAssignment> {
-  const assignments = new Map<string, BalancedMotionAssignment>()
-  const startDirection: -1 | 1 = seededUnit(round.movementSeed ^ 0x85ebca6b)() > 0.5 ? 1 : -1
-  const morphSalts: Record<MorphId, number> = {
-    camouflaged: 0x2c1b3c6d,
-    conspicuous: 0x297a2d39,
-  }
+): Map<string, SlotMotionAssignment> {
+  const assignments = new Map<string, SlotMotionAssignment>()
+  const streamRandom = seededUnit(round.movementSeed ^ 0xc2b2ae35)
+  const streamDirection: -1 | 1 = streamRandom() > 0.5 ? 1 : -1
+  const streamSpeed = 26 + streamRandom() * 20
+  // Every fish begins in one seeded, same-speed/same-direction field stream.
+  // This keeps the traffic solver calm while making the modeled inherited
+  // morph exactly neutral: any allowed morph count receives the same assigned
+  // speed, direction, and patrol-span distribution. Per-slot curve phase and
+  // amplitude still prevent the field from reading as rigid horizontal lanes.
 
-  for (const morphId of ['camouflaged', 'conspicuous'] as const) {
-    const morphOrganisms = deterministicShuffle(
-      organisms.filter((organism) => organism.morphId === morphId),
-      round.movementSeed ^ morphSalts[morphId],
-    )
-    const count = morphOrganisms.length
-    morphOrganisms.forEach((organism, rank) => {
-      const quantile = (rank + 0.5) / Math.max(1, count)
-      const baseSpeed = 26 + 20 * quantile
-      const direction = rank % 2 === 0 ? startDirection : (startDirection === 1 ? -1 : 1)
-      assignments.set(organism.id, {
-        profileId: `balanced-${rank + 1}-of-${count}`,
-        direction,
-        profile: {
-          kind: 'fish_patrol',
-          speedPxPerSecond: baseSpeed * round.movementScale * (round.reducedMotion ? 0.5 : 1),
-          verticalAmplitude: round.reducedMotion
-            ? 0
-            : 3.5 + 3 * Math.cos(quantile * Math.PI * 2),
-          phase: quantile * Math.PI * 2,
-        },
-      })
+  // Motion comes from the shuffled display slot alone. Morph is intentionally
+  // absent here, so neither pattern receives a hidden movement advantage.
+  organisms.forEach((organism, slot) => {
+    const random = seededUnit(round.movementSeed ^ Math.imul(slot + 1, 0x9e3779b1))
+    assignments.set(organism.id, {
+      profileId: `slot-${slot + 1}`,
+      direction: streamDirection,
+      profile: {
+        kind: 'fish_patrol',
+        speedPxPerSecond: streamSpeed * round.movementScale * (round.reducedMotion ? 0.5 : 1),
+        verticalAmplitude: round.reducedMotion ? 0 : 3 + random() * 7,
+        phase: random() * Math.PI * 2,
+        curvePeriodMs: 1_300 + random() * 900,
+      },
     })
-  }
+  })
   return assignments
 }
 
