@@ -478,6 +478,52 @@
   animation: resolving-spin 700ms linear infinite;
 }
 @keyframes resolving-spin { to { transform: rotate(360deg); } }
+.facilitator-qa-panel {
+  margin: 0;
+  border-top: 1px solid rgb(165 236 251 / 20%);
+  color: #e1f0f3;
+  background: #061d2b;
+}
+.facilitator-qa-panel summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  cursor: pointer;
+  color: #e8f7f9;
+  font-size: .86rem;
+  font-weight: 900;
+}
+.facilitator-qa-panel summary span { color: #9fc6d0; font-size: .75rem; font-weight: 750; }
+.facilitator-qa-panel summary:focus-visible { outline: 3px solid var(--sun); outline-offset: -3px; }
+.facilitator-qa-panel__body {
+  display: grid;
+  gap: 14px;
+  padding: 6px 20px 20px;
+  border-top: 1px solid rgb(165 236 251 / 14%);
+}
+.facilitator-qa-panel__body section { display: grid; gap: 8px; }
+.facilitator-qa-panel__body h3 { margin: 0; color: var(--cyan-soft); font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; }
+.facilitator-qa-panel__note { margin: 0; color: #bcd4da; font-size: .8rem; line-height: 1.45; }
+.facilitator-qa-panel__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.facilitator-qa-panel__metrics div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgb(165 236 251 / 20%);
+  border-radius: 8px;
+  background: rgb(3 19 31 / 50%);
+}
+.facilitator-qa-panel__metrics dt { color: #a6c5cd; font-size: .7rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.facilitator-qa-panel__metrics dd { margin: 3px 0 0; color: #fff; font-size: .95rem; font-variant-numeric: tabular-nums; font-weight: 900; overflow-wrap: anywhere; }
+.facilitator-qa-panel .secondary-button { justify-self: start; }
+
 .round-hud {
   justify-content: space-around;
   flex-wrap: wrap;
@@ -776,6 +822,7 @@
   .mode-picker,
   .rate-comparison,
   .metric-grid,
+  .facilitator-qa-panel__metrics,
   .evidence-choice-grid--pair { grid-template-columns: 1fr; }
   .stage-action-dock { align-items: stretch; flex-direction: column; }
   .stage-action-dock .primary-button { width: 100%; }

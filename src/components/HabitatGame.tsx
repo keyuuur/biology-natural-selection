@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   HabitatId,
   MorphCounts,
@@ -9,10 +9,19 @@ import type {
 import { deriveSeed } from '../simulation/index.ts'
 import {
   diagnosticsBridgeEnabled,
+  facilitatorQaPanelEnabled,
   interactionQaParams,
   readUnsignedE2eSeed,
 } from '../testing/e2eControls.ts'
 import { HABITAT_STUDENT_COPY } from '../learning/index.ts'
+import { FacilitatorQaPanel } from './FacilitatorQaPanel.tsx'
+import {
+  emptyQaSessionAggregate,
+  recordQaFeedbackLatency,
+  recordQaOutcome,
+  type QaOutcome,
+  type QaSessionAggregate,
+} from '../qa/facilitatorQaDiagnostics.ts'
 import type { PhaserSceneController } from '../phaser/PhaserSceneController.ts'
 import { diagnosticsWithClientCoordinates } from '../phaser/diagnosticsCoordinates.ts'
 import { loadPhaserSceneController } from '../phaser/loadPhaserSceneController.ts'
@@ -122,6 +131,7 @@ export function HabitatGame(props: HabitatGameProps) {
     () => readUnsignedE2eSeed(interactionQaParams(), 'e2ePlacementSeed'),
     [],
   )
+  const showFacilitatorQaPanel = useMemo(() => facilitatorQaPanelEnabled(), [])
 
   const roundId = `${props.habitatId}:g${props.generation}:s${props.roundSeed}`
   const organisms = useMemo(
@@ -141,6 +151,7 @@ export function HabitatGame(props: HabitatGameProps) {
   const lastVisibleSecondRef = useRef(Math.ceil(props.durationMs / 1000))
   const lastAnnouncedSecondRef = useRef<number | null>(null)
   const [displayMetrics, setDisplayMetrics] = useState<MutableMetrics>(metricsRef.current)
+  const [qaAggregate, setQaAggregate] = useState<QaSessionAggregate>(() => emptyQaSessionAggregate())
   const [rendererMessage, setRendererMessage] = useState(
     props.forceRendererFailure
       ? 'Observation mode is active because graphics are unavailable.'
@@ -184,42 +195,52 @@ export function HabitatGame(props: HabitatGameProps) {
     removePartialCanvas()
   }
 
+  const readQaSnapshot = useCallback((): Record<string, unknown> => {
+    const canvas = hostRef.current?.querySelector('canvas') ?? null
+    const controller = controllerRef.current
+    const rendererDiagnostics = diagnosticsWithClientCoordinates(
+      (controller as InteractionController | null)?.getDiagnostics?.() ?? {},
+      canvas,
+    )
+    return {
+      ...rendererDiagnostics,
+      roundState: statusRef.current,
+      roundStatus: statusRef.current,
+      remainingMs: remainingMsRef.current,
+      manualCatches: total(metricsRef.current.manualCatches),
+      manualCatchesByMorph: { ...metricsRef.current.manualCatches },
+      misses: metricsRef.current.misses,
+      protectedAttempts: metricsRef.current.protectedEscapes,
+      firstAcceptedCatchElapsedMs: firstAcceptedCatchElapsedMsRef.current,
+      acceptedCaptureTrace: acceptedCaptureTraceRef.current.map((entry) => ({ ...entry })),
+      roundElapsedMs: metricsRef.current.elapsedMs,
+      canvasCount: hostRef.current?.querySelectorAll('canvas').length ?? 0,
+      documentCanvasCount: document.querySelectorAll('.habitat-canvas-host canvas').length,
+    }
+  }, [])
+
+  const recordFacilitatorQaOutcome = useCallback((outcome: QaOutcome): void => {
+    if (!showFacilitatorQaPanel) return
+    setQaAggregate((current) => recordQaOutcome(current, outcome))
+  }, [showFacilitatorQaPanel])
+
+  const recordFacilitatorQaLatency = useCallback((latencyMs: number): void => {
+    if (!showFacilitatorQaPanel) return
+    setQaAggregate((current) => recordQaFeedbackLatency(current, latencyMs))
+  }, [showFacilitatorQaPanel])
+
   useEffect(() => {
     if (!diagnosticsBridgeEnabled()) return
 
     const qaWindow = window as QaWindow
-    const installedQaBridge: InteractionQaBridge = {
-      snapshot: () => {
-        const canvas = hostRef.current?.querySelector('canvas') ?? null
-        const controller = controllerRef.current
-        const rendererDiagnostics = diagnosticsWithClientCoordinates(
-          (controller as InteractionController | null)?.getDiagnostics?.() ?? {},
-          canvas,
-        )
-        return {
-          ...rendererDiagnostics,
-          roundState: statusRef.current,
-          roundStatus: statusRef.current,
-          remainingMs: remainingMsRef.current,
-          manualCatches: total(metricsRef.current.manualCatches),
-          manualCatchesByMorph: { ...metricsRef.current.manualCatches },
-          misses: metricsRef.current.misses,
-          protectedAttempts: metricsRef.current.protectedEscapes,
-          firstAcceptedCatchElapsedMs: firstAcceptedCatchElapsedMsRef.current,
-          acceptedCaptureTrace: acceptedCaptureTraceRef.current.map((entry) => ({ ...entry })),
-          roundElapsedMs: metricsRef.current.elapsedMs,
-          canvasCount: hostRef.current?.querySelectorAll('canvas').length ?? 0,
-          documentCanvasCount: document.querySelectorAll('.habitat-canvas-host canvas').length,
-        }
-      },
-    }
+    const installedQaBridge: InteractionQaBridge = { snapshot: readQaSnapshot }
     qaWindow.__NS_INTERACTION_QA__ = installedQaBridge
     return () => {
       if (qaWindow.__NS_INTERACTION_QA__ === installedQaBridge) {
         delete qaWindow.__NS_INTERACTION_QA__
       }
     }
-  }, [])
+  }, [readQaSnapshot])
 
   function updateVisibleTime(nextRemainingMs: number): void {
     const nextSecond = Math.max(0, Math.ceil(nextRemainingMs / 1000))
@@ -467,6 +488,7 @@ export function HabitatGame(props: HabitatGameProps) {
             if (remainingOfMorph <= 3) {
               current.protectedEscapes += 1
               controllerRef.current?.showEscape(organismId)
+              recordFacilitatorQaOutcome('protected')
               snapshotMetrics()
               announce('Protected for comparison — enough parents must remain.')
               return
@@ -483,6 +505,7 @@ export function HabitatGame(props: HabitatGameProps) {
             }
             acceptedCaptureTraceRef.current.push({ organismId, morphId, elapsedMs })
             controllerRef.current?.confirmCapture(organismId)
+            recordFacilitatorQaOutcome('caught')
             snapshotMetrics()
             announce(`Caught. ${total(nextCatches)} of 12.`)
 
@@ -492,8 +515,13 @@ export function HabitatGame(props: HabitatGameProps) {
             if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
             metricsRef.current.misses += 1
             metricsRef.current.elapsedMs = elapsedMs
+            recordFacilitatorQaOutcome('miss')
             snapshotMetrics()
             announce('Miss — no penalty.')
+          },
+          onFeedbackLatency: ({ roundId: eventRoundId, latencyMs }) => {
+            if (eventRoundId !== roundIdRef.current) return
+            recordFacilitatorQaLatency(latencyMs)
           },
           onTick: ({ roundId: eventRoundId, remainingMs: nextRemaining }) => {
             if (eventRoundId !== roundIdRef.current || completionLockedRef.current) return
@@ -561,7 +589,7 @@ export function HabitatGame(props: HabitatGameProps) {
       }
       disposeRenderer()
     }
-  }, [props.forceRendererFailure])
+  }, [props.forceRendererFailure, recordFacilitatorQaLatency, recordFacilitatorQaOutcome])
 
   function startRound(): void {
     const controller = controllerRef.current
@@ -694,6 +722,13 @@ export function HabitatGame(props: HabitatGameProps) {
         <span><strong>Model-protected {displayMetrics.protectedEscapes}</strong></span>
       </div>
       <p className="field-caption">Tap whichever organisms you notice first. Do not hunt for a particular pattern.</p>
+      {showFacilitatorQaPanel && (
+        <FacilitatorQaPanel
+          aggregate={qaAggregate}
+          onReset={() => setQaAggregate(emptyQaSessionAggregate())}
+          readRendererSnapshot={readQaSnapshot}
+        />
+      )}
     </section>
   )
 }

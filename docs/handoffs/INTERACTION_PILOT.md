@@ -1,81 +1,239 @@
 # Natural Selection Interaction Pilot
 
-Use this checklist only after the interaction-polish preview is browser-verified. Record anonymous session codes only. Do not enter student names, periods, or assessment responses into the application or QA tools.
+Use this protocol only after a browser-verified, QA-enabled preview is frozen.
+It records anonymous observation codes and aggregate device facts only. Do not
+enter names, periods, support reasons, student answers, screenshots of student
+work, or a code-to-name map into the application, QA panel, or pilot record.
 
-## Gate 1: target-iPad technical verification
+## Gate 0: freeze the candidate
 
-### Setup
+Before any device or student session:
 
-- Device and Safari version: ____________________
+- Record the exact branch, commit SHA, preview URL, and Vercel deployment ID.
+- Use that single preview for every Gate 1 and Gate 2 session. Do not change
+  the game between primary pilot sessions.
+- Confirm the preview is not a production deployment and no student identity,
+  analytics, or network submission is requested.
+- Students use the plain preview URL. Only the facilitator adds `?qa=1` to the
+  QA-enabled preview URL for technical checks.
+- The facilitator panel is device-only and in-memory. It reports aggregate
+  outcomes and renderer facts; it never saves or sends student information.
+
+## Gate 1: target iPad, Safari, and school Wi-Fi
+
+### Setup record
+
+- Device model and iPadOS/Safari version: ____________________
 - School Wi-Fi location: ____________________
-- Preview URL and deployment ID: ____________________
-- Date: ____________________
-- Confirm production was not used: [ ]
-- Confirm no student identity is requested: [ ]
+- Preview URL: ____________________
+- Deployment ID and commit SHA: ____________________
+- Date and facilitator: ____________________
+- Production was not used: [ ]
+- No student identity is requested: [ ]
 
-### Three consecutive sessions
+Open the facilitator URL with `?qa=1`. Open **Facilitator diagnostics**, press
+**Reset facilitator counters**, and close the panel before each session. It is
+in-flow below the field and must never cover prey or intercept a tap.
 
-| Session | Required path | Completed | Notes |
-| --- | --- | --- | --- |
-| 1 | Standard; at least 24 deliberate prey taps across both habitats | [ ] | |
-| 2 | Extended; edge taps, active rotation, background tab, and Resume | [ ] | |
-| 3 | Reduced motion; finish, replay, and continue without refreshing | [ ] | |
+The panel's input-latency values measure Phaser input handling through feedback
+creation, not physical touch-to-photon paint time. Use them as a repeatable
+technical signal, then also watch the visible feedback and freeze behavior on
+the physical device.
 
-For each session, record centered eligible taps as `registered / attempted`. Count a tap as correct only when the intended organism is accepted exactly once.
+### Exact three-session path
+
+| Session | Required exercise | Evidence to record |
+| --- | --- | --- |
+| 1 | Cold start on school Wi-Fi; Standard Predator study; at least 24 centered deliberate prey taps across both habitats. | Cold-start time, accepted/attempted taps, input samples, FPS, visible freezes, controller/canvas counts. |
+| 2 | Extended Predator study; centered edge targets; portrait-to-landscape rotation during a live round; background Safari; return and press Resume. | Timer before/after hidden state, remapped tap after rotation, no duplicate catch/end, counts after session. |
+| 3 | Turn on system reduced motion; finish a Predator study; replay without refreshing. | Reduced-motion behavior, renderer reuse, Session-3 performance compared with Session 1. |
+
+Then perform two short route checks, separate from the three primary sessions:
+
+- **VoiceOver:** verify the study-route choice, one current action, the
+  Observation round, and Results are understandable without duplicate status
+  announcements.
+- **Observation:** select Observation deliberately, resolve a reef round with
+  no canvas, and verify Results says predator performance was not part of the
+  study while the science pathway still reaches predictions, graphs, checks,
+  evidence, and CER.
+
+### Measurement rules
+
+- **Cold start:** start the clock when the preview navigation begins; stop when
+  the Mission screen is usable and the route controls are visible.
+- **Centered eligible tap:** a deliberate tap near the center of an eligible
+  organism. It is correct only if that organism is accepted exactly once.
+- **Input latency p95:** after a session, read the panel's latency p95 and
+  sample count. Use at least the 24 Session-1 centered taps for the primary
+  sample. Do not label it physical display latency.
+- **Average gameplay FPS:** after at least 20 seconds of a full-density live
+  round, record the panel's current renderer sample. Record its frame p95 and
+  frames over 50 ms beside it.
+- **Visible freeze:** time or estimate any plainly visible frozen interaction;
+  record the longest observed freeze. A pause overlay is not a freeze.
+- **Timer preservation:** record remaining time immediately before backgrounding
+  and immediately after the Resume overlay appears. Hidden time must not be
+  deducted.
+- **Session-3 degradation:** compare equivalent 20-second live-round FPS
+  readings. Session 3 must be at least 90% of Session 1.
 
 | Measure | Session 1 | Session 2 | Session 3 | Gate target |
 | --- | ---: | ---: | ---: | ---: |
-| Correct centered taps | | | | at least 95% |
-| Touch feedback p95 | | | | at most 100 ms |
-| Average gameplay FPS | | | | at least 30 |
+| Correct centered taps / attempted | | | | at least 95% |
+| Input latency p95 / sample count | | | | at most 100 ms |
+| Average FPS / frame p95 | | | | at least 30 FPS |
 | Longest visible freeze | | | | at most 250 ms |
 | Controller count after session | | | | exactly 1 |
 | Canvas count after session | | | | exactly 1 |
+| Duplicate round ends | | | | 0 |
 | Cold start | | n/a | n/a | under 5 seconds |
-
-Session 3 performance may degrade by no more than 10% from Session 1. Any touch-accuracy, timer-integrity, rotation-mapping, duplicate-event, crash, or progressive-slowdown failure blocks the student pilot.
 
 Also confirm:
 
-- [ ] Canvas touches do not scroll the page.
-- [ ] Scrolling outside the canvas still works.
+- [ ] Canvas touches do not scroll the page; scrolling outside the canvas works.
 - [ ] No prey or controls are clipped in portrait or landscape.
-- [ ] Fish movement does not show a repeated reversal or stall pattern that makes tapping confusing or makes row/location an unintended cue.
+- [ ] Fish movement does not create a repeated reversal/stall pattern that is
+      visibly confusing or makes row/location an unintended cue.
+- [ ] Rotation remaps actors inside the canvas and a post-rotation target can be tapped.
 - [ ] Hidden time is not deducted and return requires Resume.
-- [ ] No duplicate catch or duplicate round completion occurs.
-- [ ] Replay does not create another canvas or reload the renderer.
-- [ ] Safari VoiceOver announces the study-route choice, one current action, the Observation round, and Results without duplicate status messages.
-- [ ] Observation study can be started and its reef round resolved without mounting a canvas; its Results wording says predator performance was not part of the study.
+- [ ] Replay does not create another controller, canvas, or renderer reload.
+- [ ] VoiceOver path works without duplicate status messages.
+- [ ] Observation path completes without a canvas or predator score.
+
+### Gate 1 decision
+
+Gate 1 passes only if all technical targets above pass. A touch-accuracy,
+timer-integrity, rotation-mapping, duplicate-event, crash, progressive-slowdown,
+or accessibility failure blocks Gate 2.
+
+- **Technical/accessibility blocker:** reproduce it on this frozen SHA, fix
+  only that category, rerun affected automated coverage, and repeat all three
+  iPad sessions before inviting students.
+- **Motion/topology concern:** record viewport, habitat, and trigger. It may
+  proceed to Gate 2 only if it is not impairing reliable play; repeated,
+  student-visible confusion or row/location strategy requires correction first.
+- **Non-blocking note:** record isolated visual preference without tuning.
 
 Gate 1 decision: **PASS / BLOCKED**
 
-## Gate 2: anonymous 6–8 student pilot
+## Gate 2: anonymous eight-student pilot
 
-Use codes `A–H`. Include at least six Standard sessions, at least two Extended sessions, and at least two students who commonly benefit from additional processing or motor time. Do not record why a student receives support.
+### Assignment and privacy
 
-Include at least one Observation study in addition to the Standard and Extended sessions. The Observation student should complete independently and explain that the science endpoint is the same even though predator performance is not part of that route.
+Use exactly eight sequential anonymous codes, `A` through `H`:
 
-For the visual-challenge decision, collect six distinct Standard-mode pilot sessions. Six Standard sessions, two Extended sessions, and one Observation replay can fit within the same six-to-eight anonymous students.
+- `A` through `F`: six distinct Standard Predator studies.
+- `G` through `H`: two Extended Predator studies.
+- One of `A` through `H` completes a separate Observation replay after their
+  primary study. Its time is recorded separately; it is not a ninth primary
+  session and does not replace a Standard or Extended session.
+- Include at least two students who commonly benefit from extra processing or
+  motor time, but do not record names, reasons, diagnoses, or support status.
 
-The facilitator waits 15 seconds before helping. If help is required, record the exact prompt without interpreting it.
+Before each primary study, clear the prior device's local draft/result after
+the facilitator has recorded only the permitted anonymous aggregate fields. Do
+not retain one student's local reasoning for another student.
 
-| Code | Mode | First catch seconds | Eligible taps correct / attempted | Help prompt after 15 s | Rotation, scroll, or motion issue | Total minutes | Unclear next action |
+Give every student this exact neutral script:
+
+> Please work through the study. Tell me if you cannot tell what to do. I will
+> wait fifteen seconds before offering help.
+
+Do not intervene before 15 seconds. If help is required, give this one neutral
+prompt and record that exact wording plus the navigation category:
+
+> Please reread the on-screen instruction. What action does it ask you to take?
+
+Use `starting generation`, `Mission action`, `Evidence action`, `CER location`,
+or `other navigation` as the category. Never infer or record why help was
+needed.
+
+### Measurement definitions
+
+- **First accepted catch:** Start Generation tap to the first accepted catch.
+- **Completion time:** Mission screen usable to Results visible; do not include
+  the separate Observation replay.
+- **Time to 12:** record elapsed time and seconds remaining only if 12 manual
+  catches occur; otherwise write `not reached`.
+- **Eligible-tap accuracy:** aggregate all deliberate intended eligible taps as
+  `accepted exactly once / attempted`. Do not count blank taps or protected
+  parents as intended eligible captures.
+- **Next-action discovery:** relevant screen visible and settled to the first
+  correct action. Do not cue before the five-second observation.
+- **Strategy:** after a Standard predator round, code one short category only:
+  `background/pattern`, `color/stripe`, `row/location`, `movement`, or `other`.
+  Do not save quotations.
+
+| Code | Mode | First catch sec | Eligible taps correct / attempted | Help category after 15 sec | Rotation, scroll, or motion issue | Primary completion min | Unclear next action |
 | --- | --- | ---: | --- | --- | --- | ---: | --- |
-| A | | | | | | | |
-| B | | | | | | | |
-| C | | | | | | | |
-| D | | | | | | | |
-| E | | | | | | | |
-| F | | | | | | | |
-| G | | | | | | | |
-| H | | | | | | | |
+| A | Standard | | | | | | |
+| B | Standard | | | | | | |
+| C | Standard | | | | | | |
+| D | Standard | | | | | | |
+| E | Standard | | | | | | |
+| F | Standard | | | | | | |
+| G | Extended | | | | | | |
+| H | Extended | | | | | | |
 
 ### Challenge and navigation evidence
 
-For each Standard-mode session, record the predator-round evidence below. The stated strategy is the student's own short description after the round; use only one of `background/pattern`, `color/stripe`, `row/location`, `movement`, or `other observation`.
+| Code | Time to 12 catches or not reached | Seconds remaining at 12 | Misses | Camouflaged / conspicuous captures | Stated strategy |
+| --- | --- | ---: | ---: | --- | --- |
+| A | | | | | |
+| B | | | | | |
+| C | | | | | |
+| D | | | | | |
+| E | | | | | |
+| F | | | | | |
 
-| Code | Time to 12 catches | Seconds remaining at 12 | Misses | Camouflaged / conspicuous captures | Stated strategy |
-| --- | ---: | ---: | ---: | --- | --- |
+| Code | Mission action within 5 sec | Evidence action within 5 sec | Evidence completed without navigation help | Needed help locating CER response or submit |
+| --- | --- | --- | --- | --- |
+| A | | | | |
+| B | | | | |
+| C | | | | |
+| D | | | | |
+| E | | | | |
+| F | | | | |
+| G | | | | |
+| H | | | | |
+
+Observation replay record:
+
+| Code | Completed independently | Identifies same science endpoint | Notes limited to route behavior |
+| --- | --- | --- | --- |
+| | | | |
+
+### Exit prompts and coding key
+
+Ask these prompts verbally. Record only `clear`, `clear after feedback`, or
+`not yet clear`; never retain the student's wording.
+
+1. **Population change:** “Using your graph and survival/offspring evidence,
+   why did the percentage of one inherited pattern change even though the total
+   stayed 40?”
+2. **Individual change:** “Did any individual change or develop a needed
+   pattern, or did existing inherited patterns become more or less common?
+   Explain.”
+3. **Fitness:** “What does fitness mean in this activity?”
+4. **Changed background:** “If the background changed, would any individual
+   moth need to change? What could change in the next generations, and why?”
+
+If a student uses intentional-individual-change language, give this one
+correction, then re-ask the relevant prompt:
+
+> In this model, patterns are inherited; individual organisms did not change
+> their own pattern. Look at the survivors and offspring.
+
+Code a combined causal-model explanation as **clear** only when the responses
+communicate all of: pre-existing inherited variation, environmental
+pressure/predation, unequal survival **and** reproduction/offspring, inherited
+offspring, and population percentage/composition changing while total population
+size stays fixed. `Clear after feedback` requires the same model after the
+documented neutral correction; otherwise use `not yet clear`.
+
+| Code | Population change | Individual change | Fitness | Changed background | Combined causal model |
+| --- | --- | --- | --- | --- | --- |
 | A | | | | | |
 | B | | | | | |
 | C | | | | | |
@@ -85,68 +243,55 @@ For each Standard-mode session, record the predator-round evidence below. The st
 | G | | | | | |
 | H | | | | | |
 
-Record next-action discovery separately. Start each timing at the relevant screen becoming visible; do not prompt before five seconds.
+### Gate 2 decision rules
 
-| Code | Mission next action within 5 s | Evidence next action within 5 s | Evidence completed without navigation help | Needed help locating CER response or submit |
-| --- | --- | --- | --- | --- |
-| A | | | | |
-| B | | | | |
-| C | | | | |
-| D | | | | |
-| E | | | | |
-| F | | | | |
-| G | | | | |
-| H | | | | |
+- **Experience/access pass:** at least `7 of 8` make a first accepted catch
+  within five seconds; literal 90% thresholds require `8 of 8`; aggregate
+  intended eligible-tap accuracy is at least 90%; no more than one student
+  needs help starting a generation or locating CER; median completion is at
+  most 12 minutes; all eight finish within 15 minutes; and at least `7 of 8`
+  find Mission and Evidence actions within five seconds and complete Evidence
+  independently.
+- **Science pass:** at least `6 of 8` reach the causal model; no student
+  retains intentional-individual-change language after correction; no student
+  believes misses or predator performance lower science completion; and the
+  Observation replay independently identifies the same endpoint.
+- **Challenge review only:** four or more of six Standard students reach 12
+  catches with at least 10 seconds remaining, or three or more report
+  `color/stripe` or `row/location`. Fast catches alone never force a visual
+  correction.
+- **Reliability/access first:** if first-catch or tap-accuracy thresholds miss,
+  diagnose touch, detection, movement, or layout before making the field more
+  difficult. Do not tune challenge from unreliable play.
+- **Topology review:** change layout only if repeated reversal/stall is visibly
+  disruptive or connected to a row/location strategy. Desktop solver-turn
+  counts alone are never enough.
 
-For the Observation participant, also record the route-specific endpoint check:
+Gate 2 decision: **PASS / BLOCKED / ONE BOUNDED TUNING PASS**
 
-| Code | Completed Observation independently | Says the science endpoint is the same | Notes |
-| --- | --- | --- | --- |
-| | | | |
+## Gate 3: evidence-based tuning and release decision
 
-Ask each student these four exit prompts verbally:
+For any proposed correction, write one short anonymous issue summary with the
+failure category, denominator/frequency, reproducible route/mode/orientation,
+technical diagnostics if applicable, and why the selected correction is the
+smallest fit.
 
-1. Why did a pattern's percentage change?
-2. Did an individual organism change its own pattern?
-3. What does fitness mean in this activity?
-4. What might happen if the background changed?
+Make at most one bounded correction category:
 
-Record only a short anonymous outcome code for each prompt: `clear`, `clear after feedback`, or `not yet clear`.
+- **Reliability/accessibility:** touch, timing, focus, pause, layout, or
+  renderer behavior.
+- **Challenge:** visual or topology organization only. Preserve biology, hit
+  areas, organism size, motion-speed range, score values, and time limits.
+- **Science scaffolding:** only the specific prompt, feedback, graph cue, or
+  CER support implicated by exit evidence.
+- **Cosmetic preference:** document as later backlog; do not delay release.
 
-| Code | Population change | Individual change | Fitness | Changed background |
-| --- | --- | --- | --- | --- |
-| A | | | | |
-| B | | | | |
-| C | | | | |
-| D | | | | |
-| E | | | | |
-| F | | | | |
-| G | | | | |
-| H | | | | |
+After the bounded correction, rerun lint, unit/component tests, the production
+build, three science journeys, Chromium direct-touch, WebKit iPad coverage, and
+the 60-second soak. Repeat Gate 1 for any renderer, touch, timing, rotation, or
+accessibility change; repeat the focused student measure that triggered a
+student-pilot correction.
 
-### Pilot acceptance
-
-- [ ] At least 80% make a first accepted catch within five seconds.
-- [ ] At least 90% of deliberate eligible taps register correctly.
-- [ ] No more than one student needs help starting a generation.
-- [ ] Median completion is at most 12 minutes.
-- [ ] At least 90% finish within 15 minutes.
-- [ ] At least 90% identify the next action on Mission and Evidence within five seconds and finish Evidence without navigation help.
-- [ ] No more than one student needs help locating the CER response or submit action.
-- [ ] At least one student independently completes Observation study and can say it reaches the same science endpoint without a predator score.
-- [ ] Challenge decision recorded: if four or more of six Standard-mode students reach 12 catches with at least 10 seconds remaining, or three or more state `color/stripe` or `row/location`, classify the field as needing the next visual correction review. If fewer than 80% make a first catch within five seconds or centered eligible taps are below 90%, stop and restore the approved baseline before tuning challenge.
-- [ ] Any repeated fish reversal/stall observation is classified separately from touch accuracy. Change layout/topology only when it is visibly disruptive or contributes to a row/location strategy; do not tune from a renderer diagnostic count alone.
-- [ ] At least six of eight explain population change using inherited variation, environmental pressure, survival and reproduction, offspring, and population percentage.
-- [ ] No student retains intentional-individual-change language after feedback.
-- [ ] No student believes misses or predator performance reduce science completion.
-
-Gate 2 decision: **PASS / BLOCKED**
-
-## Gate 3: bounded tuning and release decision
-
-Classify every observation before changing the build:
-
-- **Release blocker:** touch, timing, pause, accessibility, crash, progressive slowdown, or natural-selection misconception.
-- **Later backlog:** cosmetic preference that does not affect comprehension or reliability.
-
-After one bounded tuning pass, rerun lint, unit/component tests, the production build, the three science journeys, Chromium direct-touch tests, WebKit iPad checks, and the 60-second soak. Update `CURRENT_STATUS.md` with exact evidence. Production promotion still requires Keyur's separate explicit approval.
+Update `CURRENT_STATUS.md` with exact preview, iPad, pilot, and test evidence.
+Production promotion remains unavailable until these gates pass and Keyur gives
+separate explicit approval.

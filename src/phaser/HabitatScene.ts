@@ -37,6 +37,11 @@ export type HabitatSceneEvents = {
     elapsedMs: number
   }) => void
   onMiss: (event: { roundId: string; elapsedMs: number }) => void
+  onFeedbackLatency: (event: {
+    roundId: string
+    outcome: 'caught' | 'miss' | 'protected'
+    latencyMs: number
+  }) => void
   onTick: (event: { roundId: string; remainingMs: number }) => void
   onRoundEnd: (event: { roundId: string }) => void
 }
@@ -201,7 +206,7 @@ export class HabitatScene extends Phaser.Scene {
       .setStrokeStyle(3, 0xffffff, 1)
       .setDepth(29)
     const label = this.feedbackLabel(actor.container.x, actor.container.y - 31, 'Caught')
-    this.recordFeedbackLatency(organismId)
+    this.recordFeedbackLatency(organismId, 'caught')
 
     if (this.round?.reducedMotion) {
       actor.container.destroy(true)
@@ -230,7 +235,7 @@ export class HabitatScene extends Phaser.Scene {
       actor.container.y - 31,
       'Protected for comparison — enough parents must remain',
     )
-    this.recordFeedbackLatency(organismId)
+    this.recordFeedbackLatency(organismId, 'protected')
     this.destroyAfter([label], 2_000)
   }
 
@@ -347,7 +352,7 @@ export class HabitatScene extends Phaser.Scene {
     const startedAt = performance.now()
     this.eventsBridge.onMiss({ roundId: this.round.roundId, elapsedMs: this.elapsedMs() })
     this.flashMiss(pointer.worldX, pointer.worldY)
-    this.latestFeedbackLatencyMs = Math.max(0, performance.now() - startedAt)
+    this.reportFeedbackLatency(this.round.roundId, 'miss', performance.now() - startedAt)
   }
 
   private readonly handleShutdown = (): void => {
@@ -713,12 +718,23 @@ export class HabitatScene extends Phaser.Scene {
     this.feedbackTimers.add(timer)
   }
 
-  private recordFeedbackLatency(organismId: string): void {
+  private recordFeedbackLatency(organismId: string, outcome: 'caught' | 'protected'): void {
     const startedAt = this.pendingTapStartedAt.get(organismId)
     if (startedAt !== undefined) {
-      this.latestFeedbackLatencyMs = Math.max(0, performance.now() - startedAt)
+      const roundId = this.round?.roundId
+      if (roundId) this.reportFeedbackLatency(roundId, outcome, performance.now() - startedAt)
       this.pendingTapStartedAt.delete(organismId)
     }
+  }
+
+  private reportFeedbackLatency(
+    roundId: string,
+    outcome: 'caught' | 'miss' | 'protected',
+    elapsedMs: number,
+  ): void {
+    const latencyMs = Math.max(0, elapsedMs)
+    this.latestFeedbackLatencyMs = latencyMs
+    this.eventsBridge.onFeedbackLatency({ roundId, outcome, latencyMs })
   }
 
   private emitRoundEnd(): void {

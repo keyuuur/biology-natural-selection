@@ -88,6 +88,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.resetAllMocks()
+  window.history.replaceState({}, '', '/')
 })
 
 describe('HabitatGame QA coordinate diagnostics', () => {
@@ -125,6 +126,83 @@ describe('HabitatGame QA coordinate diagnostics', () => {
     expect(actor.visualBounds).toEqual({ x: 124.5, y: 72.5, width: 31, height: 15 })
     expect(actor.patrolBounds).toEqual({ x: 115, y: 65, width: 60, height: 35 })
     expect(actor.canvasVisualBounds).toEqual({ x: 49, y: 45, width: 62, height: 30 })
+  })
+})
+
+describe('HabitatGame facilitator diagnostics', () => {
+  it('stays absent without the explicit QA query', async () => {
+    const controller = fakeController()
+    let events: PhaserControllerEvents | null = null
+    loadController.mockImplementation(async (_host, nextEvents) => {
+      events = nextEvents
+      return controller
+    })
+
+    render(<HabitatGame {...roundProps(studyRounds[0], vi.fn())} />)
+    await waitFor(() => expect(events).not.toBeNull())
+    act(() => events?.onReady())
+
+    expect(screen.queryByTestId('facilitator-qa-panel')).toBeNull()
+  })
+
+  it('shows a query-gated aggregate without changing round metrics when reset', async () => {
+    window.history.replaceState({}, '', '?qa=1')
+    const controller = fakeController()
+    const diagnosticsController = controller as unknown as {
+      getDiagnostics: () => Record<string, unknown>
+    }
+    diagnosticsController.getDiagnostics = () => ({
+      controllerCount: 1,
+      canvasCount: 1,
+      actorCount: 40,
+      duplicateRoundEndCount: 0,
+      pauseReasons: [],
+      frameMetrics: { averageFps: 60, p95FrameTimeMs: 17, framesOver50Ms: 0 },
+    })
+    let events: PhaserControllerEvents | null = null
+    loadController.mockImplementation(async (_host, nextEvents) => {
+      events = nextEvents
+      return controller
+    })
+
+    render(<HabitatGame {...roundProps(studyRounds[0], vi.fn())} />)
+    await waitFor(() => expect(events).not.toBeNull())
+    act(() => events?.onReady())
+    fireEvent.click(await screen.findByTestId('start-generation'))
+
+    act(() => events?.onOrganismTapped({
+      roundId: 'reef_fish:g1:s11',
+      organismId: 'reef_fish:g1:s11:camouflaged:0',
+      morphId: 'camouflaged',
+      elapsedMs: 100,
+    }))
+    act(() => events?.onFeedbackLatency({
+      roundId: 'reef_fish:g1:s11',
+      outcome: 'caught',
+      latencyMs: 12,
+    }))
+    act(() => events?.onMiss({ roundId: 'reef_fish:g1:s11', elapsedMs: 180 }))
+    act(() => events?.onFeedbackLatency({
+      roundId: 'reef_fish:g1:s11',
+      outcome: 'miss',
+      latencyMs: 16,
+    }))
+
+    expect(screen.getByTestId('facilitator-qa-panel').hasAttribute('open')).toBe(false)
+    expect(screen.getByTestId('qa-caught-count').textContent).toContain('1')
+    expect(screen.getByTestId('qa-miss-count').textContent).toContain('1')
+    expect(screen.getByTestId('qa-latency-count').textContent).toContain('2')
+    const roundHud = screen.getByLabelText('Round progress')
+    expect(roundHud.textContent).toMatch(/caught\s*1 of 12/i)
+    expect(roundHud.textContent).toMatch(/misses\s*1.*no penalty/i)
+
+    fireEvent.click(screen.getByTestId('qa-reset'))
+
+    expect(screen.getByTestId('qa-caught-count').textContent).toContain('0')
+    expect(screen.getByTestId('qa-miss-count').textContent).toContain('0')
+    expect(screen.getByTestId('qa-latency-count').textContent).toContain('0')
+    expect(roundHud.textContent).toMatch(/caught\s*1 of 12/i)
+    expect(roundHud.textContent).toMatch(/misses\s*1.*no penalty/i)
   })
 })
 

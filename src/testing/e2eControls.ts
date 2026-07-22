@@ -52,6 +52,19 @@ export function diagnosticsBridgeEnabled(
   return params.get('qa') === '1' || params.get('e2e') === '1'
 }
 
+/**
+ * The facilitator panel is intentionally narrower than the internal bridge:
+ * a QA-capable build and an explicit `?qa=1` URL are both required. Local
+ * E2E runs may use `?e2e=1` without exposing extra classroom-facing chrome.
+ */
+export function facilitatorQaPanelEnabled(
+  search = defaultSearch(),
+  environment: E2eControlEnvironment = import.meta.env,
+): boolean {
+  if (!isE2eControlBuild(environment)) return false
+  return new URLSearchParams(search).get('qa') === '1'
+}
+
 export function readUnsignedE2eSeed(
   params: URLSearchParams | null,
   name: string,

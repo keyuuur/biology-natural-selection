@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   diagnosticsBridgeEnabled,
   e2eControlParams,
+  facilitatorQaPanelEnabled,
   interactionQaParams,
   isE2eControlBuild,
   readUnsignedE2eSeed,
@@ -20,6 +21,15 @@ describe('local E2E control gates', () => {
     expect(e2eControlParams('?e2e=1&e2eRoundMs=100&e2eSeed=101', production)).toBeNull()
     expect(interactionQaParams('?e2e=1&qa=1&e2ePlacementSeed=101', production)).toBeNull()
     expect(diagnosticsBridgeEnabled('?e2e=1&qa=1', production)).toBe(false)
+    expect(facilitatorQaPanelEnabled('?qa=1', production)).toBe(false)
+  })
+
+  it('shows the facilitator panel only for an explicitly requested QA URL', () => {
+    const qaBuild = { DEV: false, VITE_INTERACTION_QA: '1' }
+    expect(facilitatorQaPanelEnabled('', qaBuild)).toBe(false)
+    expect(facilitatorQaPanelEnabled('?qa=1', qaBuild)).toBe(true)
+    expect(facilitatorQaPanelEnabled('?e2e=1', { DEV: true })).toBe(false)
+    expect(facilitatorQaPanelEnabled('?qa=1', { DEV: true })).toBe(true)
   })
 
   it('requires both E2E and QA switches for renderer overrides', () => {

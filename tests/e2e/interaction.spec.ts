@@ -46,6 +46,39 @@ async function openInteractiveRound(
 }
 
 test.describe('Natural Selection direct-touch interaction polish', () => {
+  test('facilitator diagnostics are opt-in and reset without changing play', async ({ page }) => {
+    await page.goto(testUrl({ seed: 'facilitator-panel-student', roundMs: 3_000 }))
+    await chooseTiming(page, 'Standard')
+    await submitPrediction(page, 'reef_fish')
+    await expect(page.getByTestId('start-generation')).toBeEnabled({ timeout: 30_000 })
+    await expect(page.getByTestId('facilitator-qa-panel')).toHaveCount(0)
+
+    await page.evaluate(() => window.localStorage.clear())
+    await openInteractiveRound(page, { seed: 'facilitator-panel-qa' })
+    const panel = page.getByTestId('facilitator-qa-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel).not.toHaveAttribute('open', '')
+    await panel.locator('summary').click()
+    await expect(panel.getByTestId('qa-renderer-counts')).toHaveText('1 / 1')
+    await expect(panel.getByTestId('qa-round-state')).toHaveText('ready')
+
+    await startGenerationByTouch(page)
+    await tapActor(page)
+    const blankPoint = await findBlankCanvasPoint(page)
+    await page.touchscreen.tap(blankPoint.x, blankPoint.y)
+    await expect(panel.getByTestId('qa-caught-count')).toHaveText('1')
+    await expect(panel.getByTestId('qa-miss-count')).toHaveText('1')
+    await expect(panel.getByTestId('qa-latency-count')).toHaveText('2')
+    await expect(panel.getByTestId('qa-duplicate-ends')).toHaveText('0')
+
+    await panel.getByTestId('qa-reset').click()
+    await expect(panel.getByTestId('qa-caught-count')).toHaveText('0')
+    await expect(panel.getByTestId('qa-miss-count')).toHaveText('0')
+    await expect(panel.getByTestId('qa-latency-count')).toHaveText('0')
+    await expect(page.getByLabel('Round progress')).toContainText(/caught\s*1 of 12/i)
+    await expect(page.getByLabel('Round progress')).toContainText(/misses\s*1.*no penalty/i)
+  })
+
   test('12 real touch catches finish early with no modeled captures @webkit', async ({ page }, testInfo) => {
     await openInteractiveRound(page, { seed: 'touch-manual-success' })
     const initial = await startGenerationByTouch(page)
