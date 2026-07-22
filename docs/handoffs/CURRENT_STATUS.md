@@ -1,18 +1,19 @@
 # Natural Selection Current Status
 
-Last verified locally and on preview: 2026-07-22
+Last verified locally and on preview: 2026-07-22 (CDT)
 
 ## Current candidate
 
 - Branch: `codex/s1-completion-recovery`, tracking
   `origin/codex/s1-completion-recovery`.
-- Tested runtime source: `23ba90e` (`feat: add facilitator pilot diagnostics`).
+- Tested runtime source: `9138e08` (`fix: harden facilitator pilot readiness`).
   The branch was pushed before the preview was created.
 - Current QA-enabled Vercel **preview**:
-  `https://biology-natural-selection-qnpoevh8w-keyur159263-5904s-projects.vercel.app`
-  - Deployment: `dpl_8mSKKrjfY23der7tUKfKW1Hvm5RK`, Ready.
-  - Created 2026-07-22 15:27 CDT from `23ba90e` with
-    `VITE_INTERACTION_QA=1`.
+  `https://biology-natural-selection-iopexnh7l-keyur159263-5904s-projects.vercel.app`
+  - Deployment: `dpl_63ygWCZUfyanXbH3ai6dhLg3ixUF`, Ready.
+  - Created 2026-07-22 16:16 CDT from `9138e08` with
+    `VITE_INTERACTION_QA=1` only. It did **not** use
+    `VITE_E2E_CONTROLS=1`.
   - This is the sole candidate for Gate 1 and Gate 2. Do not use earlier
     previews for device or pilot work.
 - Production was not deployed or changed.
@@ -21,57 +22,74 @@ Last verified locally and on preview: 2026-07-22
 
 ## What changed at this checkpoint
 
-- Added a closed, in-flow **Facilitator diagnostics** panel. It appears only in
-  a QA-enabled build with `?qa=1`, below the live field, and never covers prey.
-  Students use the plain preview URL.
-- The panel reports resettable in-memory aggregate catches, misses, protected
-  attempts, callback-latency samples, and current renderer lifecycle/frame
-  facts. Reset changes only those facilitator counters.
-- It does not save, send, or render student identity, predictions, answers, CER
-  text, raw organism IDs, traits, or coordinates.
-- The renderer now emits a bounded numeric callback-latency event for accepted,
-  miss, and protected interactions. This measures Phaser input handling to
-  feedback creation, not physical touch-to-photon latency.
-- Rewrote `INTERACTION_PILOT.md` with exact Gate 1 measurements, Gate 2 A-H
-  assignment, neutral help language, privacy controls, exit-prompt coding, and
-  evidence-driven tuning rules. Biology, gameplay, scoring, timing, hit areas,
-  persistence, and result schema are unchanged.
+- **Preview safety:** `VITE_INTERACTION_QA=1` now permits only the visible,
+  query-gated aggregate facilitator panel. It ignores every `?e2e=1` timer,
+  seed, renderer, and storage override, and it does not publish the raw
+  `window.__NS_INTERACTION_QA__` bridge. Raw actor diagnostics remain local or
+  explicitly non-public E2E-only.
+- **Facilitator measurement:** **Reset facilitator session data** now resets
+  aggregate outcomes, latency samples, frame samples, and duplicate-end count
+  together without changing the population, live timer, HUD, actors,
+  assessment, draft, or result.
+- **Shared-device privacy:** beginning a new study, choosing Start over in
+  draft recovery, and replaying after Results clears both the draft and prior
+  local result, including a previous student's saved free-text CER.
+- **Draft recovery accessibility:** the recovery dialog initially focuses
+  Resume, makes the background inert/hidden from assistive technology, wraps
+  Tab within its choices, and returns focus to the active stage heading after
+  Resume or Start over.
+- Added Chromium/WebKit checks for the facilitator panel, focused draft
+  recovery, shared-device result clearing, portrait/landscape panel placement,
+  and resettable renderer samples. Biology, gameplay, scoring, timing, hit
+  areas, persistence schema, and assessment requirements are unchanged.
 
 ## Verified evidence
 
 ### Local
 
 - `npm run check`: passed.
-  - Vitest: **105/105** tests passed.
+  - Vitest: **106/106** tests passed across 15 files.
   - Production build passed.
-  - Base JavaScript: **89.27 KB gzip**; lazy Phaser: **366.30 KB gzip**.
-  - The three existing non-failing `HabitatGame.tsx` hook-dependency warnings
-    remain; this checkpoint added no new lint warnings.
-- Focused Chromium direct-touch browser test passed:
-  `facilitator diagnostics are opt-in and reset without changing play`.
-  It verified no panel on the ordinary test route; the opt-in panel, real touch
-  capture, blank-canvas miss, live one-controller/one-canvas data, and reset
-  without changing game HUD counts.
-- Prior broad game, WebKit, fallback, and challenge-baseline evidence remains
-  valid because the classroom mechanics did not change. It is not a substitute
-  for physical iPad/Safari or student-pilot evidence.
+  - Base JavaScript: **89.76 KB gzip**; lazy Phaser: **366.32 KB gzip**.
+  - The same three pre-existing, non-failing `HabitatGame.tsx`
+    hook-dependency warnings remain; this checkpoint added no lint warnings.
+- A local production-style build with `VITE_INTERACTION_QA=1` was browser
+  checked. The hostile-looking
+  `?e2e=1&e2eRoundMs=100&e2eRenderer=fail&e2eStorage=fail` URL stayed a normal
+  Mission route; `?qa=1` showed the panel but returned `false` for the raw
+  bridge.
+- Browser test groups passed:
+  - Chromium original science journeys: **3/3** (Standard, Extended
+    refresh/resume/correction, and renderer/storage fallback/replay).
+  - Chromium direct touch: **8 passed**, **3 intentionally skipped**
+    screenshot/soak cases; it covered manual catches, student agency, misses,
+    protected parents, rotation, pause/resume, reduced motion, moths, and
+    renderer reuse.
+  - WebKit iPad profile: **15/15**, including the panel, touch, rotation,
+    pause/resume, reduced motion, fallback, draft recovery, shared-device
+    clearing, Observation, focus, and portrait document flow.
+  - Chromium soak: **2/2** (60-second full-density renderer and three-study
+    lifecycle/no-slowdown path).
+- The one-shot `npm run test:e2e` command exceeded the five-minute command
+  window after 304 seconds. Treat that aggregate command as a timeout, not a
+  pass; the required release-relevant groups above were rerun and passed in
+  smaller, observable commands.
 
 ### Preview
 
-- `vercel inspect` reports the exact preview Ready.
-- Plain preview Mission route rendered with no facilitator panel or visible QA
-  control.
+- `vercel inspect` reports deployment `dpl_63ygWCZUfyanXbH3ai6dhLg3ixUF` as
+  Ready with target `preview`.
+- On the plain/hostile E2E-parameter URL, the preview showed the ordinary
+  Mission with no forced graphics/storage fallback and no facilitator control.
 - On the facilitator URL only, a normal Predator path reached Reef Generation
-  1 and exposed the panel. During live play it reported: running state, one
-  controller/canvas, 40 actors, 60.0 average FPS, 16.7 ms frame p95, zero long
-  frames, zero duplicate ends, and no pause reason in this desktop browser.
-  These are desktop diagnostics, not physical-iPad claims.
-- QA-preview browser console: **0 errors / 0 warnings**. Its request list had
-  no non-static requests. No network submission was introduced.
-- Ignored local screenshots from this exact preview:
-  - `.playwright-cli/page-2026-07-22T20-32-40-530Z.png` (open facilitator
-    panel, ready state)
-  - `.playwright-cli/page-2026-07-22T20-34-06-743Z.png` (live reef field)
+  1 and exposed the in-flow panel below the field. It reported one controller,
+  one canvas, 40 actors, zero frame samples before play, zero duplicate ends,
+  and no pause reason. The raw bridge evaluated to `false`.
+- Preview browser console: **0 errors / 0 warnings**. Its request list had
+  only 5 static requests; no network submission was introduced.
+- Ignored local screenshot from this exact preview:
+  `.playwright-cli/page-2026-07-22T21-20-23-815Z.png` (open facilitator
+  diagnostics below the ready Reef field).
 
 ## Locked boundaries
 
@@ -95,7 +113,7 @@ Last verified locally and on preview: 2026-07-22
    two Extended, and one separate Observation replay. Record only the
    prescribed anonymous measurements and outcome codes.
 3. **Gate 3 - one bounded evidence-driven correction, only if needed.** Create
-   `codex/pilot-tuning` from `23ba90e`; correct one category only, then rerun
+   `codex/pilot-tuning` from `9138e08`; correct one category only, then rerun
    affected local checks, preview verification, and necessary external gates.
 4. **Production gate.** Keyur must separately approve promotion after reviewing
    completed gate evidence.
@@ -103,12 +121,13 @@ Last verified locally and on preview: 2026-07-22
 ## Safe resume actions
 
 1. Confirm `git status --short --branch` is clean and the branch points to the
-   current documentation checkpoint; keep the tested runtime SHA `23ba90e`
-   recorded as the preview source.
-2. On the target iPad and school Wi-Fi, open the plain preview URL for students
-   and append `?qa=1` only on the facilitator device.
-3. Press **Reset facilitator counters** before each Gate 1 session, then follow
-   the exact measurement definitions in `INTERACTION_PILOT.md`.
+   current documentation checkpoint; keep runtime SHA `9138e08` and preview
+   deployment `dpl_63ygWCZUfyanXbH3ai6dhLg3ixUF` paired.
+2. On the target iPad and school Wi-Fi, students use the plain preview URL.
+   The facilitator alone appends `?qa=1` for technical measurement.
+3. Open **Facilitator diagnostics**, press **Reset facilitator session data**,
+   then close the panel before each Gate 1 session. Use the exact measurement
+   definitions in `INTERACTION_PILOT.md`.
 4. Stop before Gate 2 if Gate 1 has a blocker. Do not modify the game between
    primary pilot sessions.
 5. Ask Keyur before any production deployment.
