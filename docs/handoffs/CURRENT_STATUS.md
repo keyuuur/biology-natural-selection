@@ -1,76 +1,61 @@
 # Natural Selection Current Status
 
-Last verified locally: 2026-07-22
+Last verified locally and on preview: 2026-07-22
 
-## Current posture
+## Current release candidate
 
-- Branch: `codex/s1-completion-recovery`; `HEAD` remains `2eae4b8afd64750ca070d43a65c996d985ad9999`.
-- The interaction-polish and challenge-remediation work is intentionally **uncommitted and unstaged**: 35 tracked files are modified and 47 entries are untracked. The untracked source/test work includes the Observation route, action dock, renderer diagnostics, label-coverage tests, and browser suites; `.playwright-cli/` and `output/` are generated local directories. Do not stage generated artifacts by default.
-- `AGENTS.md` and `KEYUR_WORKFLOW.md` have no current diff and are outside this work.
-- No branch was pushed, no preview was created or changed, and production was not deployed.
-- The only existing preview remains the older pre-C, pre-F2 build: `https://biology-natural-selection-890vhwk4u-keyur159263-5904s-projects.vercel.app`.
+- Branch: `codex/s1-completion-recovery`, tracking `origin/codex/s1-completion-recovery`.
+- Current source: `e0b10fb460e50685e08f03de5e224994c3691640` (`fix: add field lab favicon`), following `84b9ce1` (`feat: complete inclusive study route and challenge remediation`). Local and remote SHA matched before this handoff update.
+- The source-only feature work is published. `.playwright-cli/` and `output/` are ignored generated browser artifacts; do not stage them. `AGENTS.md` and `KEYUR_WORKFLOW.md` remain unchanged.
+- The current approved test candidate is the Vercel **preview**: `https://biology-natural-selection-r14paktmg-keyur159263-5904s-projects.vercel.app`.
+  - Deployment: `dpl_59WPaDLKhgXh7VGaes7gtbN9ChP7`, Ready, created 2026-07-22 14:28 CDT.
+  - It was manually built from `e0b10fb` with `VITE_INTERACTION_QA=1` so facilitators can opt into memory-only diagnostics with `?qa=1`.
+  - Production was not deployed or changed. Do not use earlier Vercel previews for device or pilot testing.
 
-## Completed local work
+## Completed product work
 
-### Inclusive study route and portrait flow
-
-- Mission now offers a deliberate Predator study or Observation study choice. Observation is an intentional no-canvas route, reaches the same science sequence, and is distinct from graphics-failure fallback.
-- Draft schema `2.1` stores the selected route. Legacy `2.0` drafts migrate as Predator studies; completed results remain schema `2.0` and contain no identity or network data.
-- Mission, Evidence, and CER use the in-flow sticky `StageActionDock`; Mission opens with an explicit Predator-or-Observation role statement, Evidence has the five required evidence checkpoints, and CER preserves its 40-character reasoning gate and exposes an in-flow submit when the keyboard reduces the visual viewport.
-- At iPad portrait widths, Evidence keeps the same ordered five checkpoints in a readable three-then-two layout rather than a cramped five-column strip. It remains one document scroll with no nested vertical scroll surface.
-- The live Predator renderer is inside the main landmark, its live heading receives stage focus, and the app has one polite live region. A renderer failure now focuses its native Observation fallback heading because the session stage does not change during that failure. Correct misconception feedback replaces that one message rather than adding another status announcer.
-- The first generation now visibly explains the fixed-population teaching model and that a deterministic seed does not claim nature follows one exact sequence. CER wording now accurately says reasoning is saved only on this device and is not automatically graded.
-
-### Habitat label consistency and release evidence
-
-- Every student-visible prediction, generation review, graph, table, Observation round, and renderer fallback now derives its labels from `HABITAT_STUDENT_COPY[habitatId].morphLabels`. Reef fish consistently use `reef-matched pattern` / `high-contrast pattern`; bark moths use `mottled bark pattern` / `solid light pattern`.
-- `HabitatLabels.test.tsx` covers both habitats across prediction, generation review, Observation, graph legend/table, and SVG graph description. Renderer fallback coverage verifies the same labels.
-- The release gameplay screenshots explicitly run at the actual 25-second Standard duration and assert that they capture live rounds rather than the resolver. The current portrait artifacts show live reef fish and live bark moths with their active HUDs; renderer-field captures use viewport screenshots to avoid interrupting the Phaser clock with a full-page canvas capture. The fallback artifact now uses product-neutral unavailable-graphics wording, and visual recheck confirmed graph/table vocabulary matches its evidence cards.
-
-### Fair visual and motion correction
-
-- Reef fish use deterministic morph-neutral placement, muted reef-adjacent palettes, shared dark eyes, and pattern/texture rather than a bright locator cue. Habitat texture is noninteractive and does not alter hit geometry.
-- Fish retain their approved 62×30 visual size, 72×48 tap region, 26–46 CSS-pixel-per-second Standard range, timers, score rules, biology, and reduced-motion contract.
-- Every fish in a reef round now shares the same seeded horizontal speed and initial direction. Curve phase/amplitude/period remain slot-only; no movement input is derived from morph.
-- Background band artwork was removed, but screenshots still show five broad distribution bands. Do **not** claim row/lane hunting is eliminated until the student pilot measures strategy and time-to-12.
+- The canonical product is the ninth-grade fish-and-moth predator/camouflage study, not the older deer prototype.
+- Mission offers a student-selected Predator or no-canvas Observation study. Observation reaches the same predictions, graphs, checks, evidence selection, and CER endpoint, but has no predator score.
+- Mission, Evidence, and CER use the sticky in-flow action dock; iPad portrait Evidence uses readable three-then-two checkpoint grouping and avoids nested vertical scrolling.
+- Student-facing labels stay habitat-specific: reef `reef-matched pattern` / `high-contrast pattern`; bark `mottled bark pattern` / `solid light pattern`.
+- Reef fish use deterministic morph-neutral placement and motion, muted reef-adjacent palettes, shared dark eyes, and pattern/texture rather than a bright trait cue. Biology, 62x30 fish size, 72x48 standard hit areas, 25/40-second timing, scoring, and privacy boundaries remain unchanged.
+- The final minor validation repair added an original local SVG favicon; it removes the only observed console 404 and adds no external asset or package.
 
 ## Verified local evidence
 
-- `npm run check` passed lint, **98/98** unit/component tests, and the production build.
+- `npm run check` passed after the final favicon commit: lint completed with the three existing non-failing `HabitatGame.tsx` hook-dependency warnings; Vitest passed **98/98** tests; and the production build passed.
   - Initial JavaScript: **87.95 KB gzip**.
-  - Lazy Phaser chunk: **366.23 KB gzip**. The existing large-chunk advisory and three pre-existing `HabitatGame.tsx` hook-dependency warnings remain non-failing and need a separately scoped review.
-- Chromium regression: **24 passed, 59 intentionally skipped**, verified file-by-file: Natural Selection journey **3/3**, S1 remediation **3/3**, study routes **7/7**, release screenshots **4/4**, and direct interaction **7/7**. The skipped set is the opt-in/manual challenge baseline, the optional resolving artifact, and the opt-in soak tests. Coverage includes Standard/Extended journeys, Predator and Observation routes, renderer/storage fallback, portrait Evidence/CER, direct touch, protected parents, pause/resume, rotation, reduced motion, moths, renderer lifecycle, focus, and disclosure checks.
-  - A single all-files Chromium invocation exceeded this harness's five-minute outer limit because the independent files total longer than that. It produced no test failure; retain the passing file-by-file evidence rather than treating that outer timeout as a product defect.
-- WebKit iPad-profile post-remediation checks passed: study routes **7/7** (including portrait docks and forced renderer fallback focus) and real lazy-import renderer fallback **1/1**. The earlier full **11/11** WebKit interaction record remains valid for the untouched touch/rotation/reduced-motion renderer code; it has not been relabeled as a fresh full-suite run.
-- Renderer soak: **2/2 passed**: a 60-second full-density sample and three accelerated studies retained one renderer without progressive slowdown.
-- Screenshot coverage: **4/4 passed** for the release matrix, now including a real-clock active bark-moth round; the optional landscape resolving-overlay capture also passed **1/1**. The current local-review images are under `test-results/release-screenshots/`; the interaction-only resolving artifacts remain under `test-results/interaction-screenshots/` and use a test-only long timer.
-- The authoritative local challenge baseline used a fresh Playwright page for each field: all 12 raw placement seeds (`101`–`112`) at `768×1024`, `1024×768`, `820×1180`, and `1180×820`; 48 fields and 192 snapshots at 0/5/10/20 seconds.
-  - Every sampled field had 40 organisms, correct 20/20 morph representation, and **zero eligible hit-region overlap**.
-  - Maximum checkpoint overshoot was **1.014 seconds**; the suite now fails a field that lands more than 1.5 seconds late.
-  - Local baseline minimum FPS was **45.87** and maximum p95 frame time was **25 ms**. These are desktop-browser diagnostics, not a physical-iPad claim.
-  - Portrait `768×1024` has real traffic pressure: 143–221 total solver turns by about 20 seconds, with at most 11 turns for one actor. It did not create overlap or a direct-touch failure. Do not change speed, target size, or biology from this count alone; check whether students see repeated reversals or use row/location during Gate 1/2.
-  - Treat only `test-results/challenge-baseline/fish-*-isolated-seed-*.json` as the authoritative all-field record. Earlier grouped/partial artifacts are ignored diagnostics and must not be used for release conclusions.
-- Representative fresh-field screenshots were captured at 0/5/10/20 seconds for all four target viewports. The current release matrix also includes Mission, reef play, evidence selection, moth play, CER, Results, student-selected Observation, and renderer-fallback portrait/landscape captures under `test-results/release-screenshots/`.
+  - Lazy Phaser chunk: **366.23 KB gzip**. The existing large-chunk advisory is deferred unless device evidence shows classroom impact.
+- Prior full local browser evidence remains valid for the unchanged game code: Chromium file-by-file **24 passed, 59 intentionally skipped** (three science journeys, S1 remediation, study routes, release screenshots, and direct interaction); WebKit iPad-profile study routes **7/7** plus real lazy-import fallback **1/1**; earlier full WebKit interaction **11/11**; renderer soak **2/2**.
+- The local challenge baseline covers 12 isolated placement seeds at four target viewports: 48 fields / 192 time snapshots, correct 20/20 representation, zero eligible hit-region overlap, desktop minimum 45.87 FPS, and maximum p95 frame time 25 ms. These are construction and desktop diagnostics only, not a claim about student challenge or physical-iPad performance.
+- Current local release screenshots are under `test-results/release-screenshots/`. Do not use generated browser folders as commit input.
 
-## Deliberately unchanged
+## Verified preview evidence
 
-- Population model, inherited traits, predation outcomes, scoring separation, production timers, result schema, privacy boundaries, and local-only persistence.
-- No new packages, external artwork, sound, vibration, analytics, storage fields, identities, network submission, deployment, or production work.
-- No physical iPad, school Wi-Fi, Safari VoiceOver, or student pilot result has been claimed or simulated.
+- The exact candidate preview and `/favicon.svg` returned HTTP 200. The ordinary preview URL had no console errors, no QA bridge or visible test controls, no canvas before a Predator round begins, and only same-origin static requests.
+- Browser local storage contained only `natural-selection:v2:session-draft`; no identity or network submission was observed. Reload showed the expected `Resume your field study?` recovery dialog with no console errors.
+- Portrait (`768x1024`) and landscape (`1024x768`) mission layouts rendered without horizontal overflow.
+- On `?qa=1` only, a normal Standard Predator path reached a live Reef Generation 1 round. One real touch-style actor catch and one blank-canvas miss produced `Caught 1 of 12`, `Misses 1 - no penalty`, one canvas/controller, zero duplicate round ends, and 2.8 ms sampled input-to-feedback latency. The sampled desktop browser renderer measured 57.9 FPS with 20.01 ms p95 frames; this is not a target-iPad claim.
+- The same final preview reached the student-selected Observation Reef Generation 1 start with **zero canvases** and explicit same-endpoint/no-predator-score wording.
+- Ignored preview screenshots: `output/playwright/preview-final-mission-portrait.png`, `preview-final-reef-catch-miss-portrait.png`, `preview-final-mission-landscape.png`, and `preview-final-observation.png`.
 
-## Remaining release gates
+## Locked boundaries
 
-1. **Gate 0 (only when Keyur authorizes it):** push the verified work and create a Vercel **preview only**, browser-verify it, then use that preview for device testing. This is not production deployment.
-2. **Gate 1:** run the target-iPad/Safari/school-Wi-Fi protocol in `docs/handoffs/INTERACTION_PILOT.md`, including cold start, touch accuracy, feedback latency, rotation, hidden-tab Resume, reduced motion, Observation/VoiceOver, and three consecutive sessions.
-3. **Gate 2:** run the anonymous 6–8 student pilot. It must measure time-to-12, misses, morph capture mix, stated hunting strategy, Mission/Evidence next-action discovery, CER navigation, Observation completion, and any noticeable repeated fish reversals.
-4. **Gate 3:** make at most one evidence-based tuning pass if Gate 1/2 finds a reliability, accessibility, misconception, or actual visual-challenge problem; rerun all affected checks.
-5. Production still requires Keyur’s separate explicit approval after preview review and the relevant gates.
+- Preserve population totals, selection weights, inherited traits, hit areas, organism size, 25/40-second timing, scoring separation, result schema, local-only storage, and the absence of names, periods, accounts, analytics, cookies, or network submissions.
+- Do not make speculative visual-challenge, speed, topology, biology, or scoring changes before real Gate 1/2 evidence.
+- Do not deploy to production without Keyur's separate explicit approval after all relevant gates pass.
+
+## Remaining gates
+
+1. **Gate 1 - target iPad/Safari/school Wi-Fi:** use the sole candidate preview and complete the three sessions, VoiceOver check, and Observation check in `docs/handoffs/INTERACTION_PILOT.md`. Any touch, timer, rotation, pause, crash, slowdown, clipping, or accessibility failure blocks the student pilot.
+2. **Gate 2 - anonymous eight-student pilot:** use codes A-H only (six Standard, two Extended, and one Observation replay). Record only the anonymous metrics and outcome codes in `docs/handoffs/INTERACTION_PILOT.md`.
+3. **Gate 3 - one bounded correction if evidence requires it:** create `codex/pilot-tuning` from `e0b10fb`; correct only one category (reliability/accessibility, topology, visual treatment, UX, or science scaffolding), then rerun affected local tests, preview, and necessary external checks.
+4. **Production gate:** only Keyur can approve promotion after reviewing the preview and the completed gate evidence.
 
 ## Safe resume actions
 
-1. Review the refreshed Mission, Evidence, live reef, live moth, and fallback images under `test-results/release-screenshots/`; do not make another speculative challenge change without Gate 1/2 evidence.
-2. For future local browser verification, run the six E2E files individually rather than one outer five-minute command; their combined runtime exceeds that harness limit even when each file passes.
-3. When the target iPad and school Wi-Fi are available, ask Keyur whether to use an approved local-network build or authorize a Vercel preview; do not publish silently.
-4. Run Gate 1 exactly as written, then record only anonymous Gate 2 observations.
-5. If evidence supports an adjustment, prototype one bounded topology/visual change without changing biology, tap areas, scoring, or timing; otherwise retain the approved C/F2 baseline.
-6. Ask Keyur before any production deployment.
+1. Open `https://biology-natural-selection-r14paktmg-keyur159263-5904s-projects.vercel.app` on the target iPad and school Wi-Fi. Use `?qa=1` only for facilitator diagnostics; do not give that URL to students, who must use the plain URL.
+2. Run Gate 1 exactly as written, record only anonymous observations, and stop before Gate 2 if a Gate 1 blocker occurs.
+3. Run the anonymous eight-student protocol only after Gate 1 passes. Do not change the game between primary pilot sessions.
+4. If evidence triggers a correction, branch from `e0b10fb`, make one bounded change, and update this handoff with exact new test/preview/device evidence.
+5. Ask Keyur before any production deployment.
