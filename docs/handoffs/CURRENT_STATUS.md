@@ -4,7 +4,7 @@ Last verified locally and on preview: 2026-07-22
 
 ## Current release candidate
 
-- Branch: `codex/s1-completion-recovery`, tracking `origin/codex/s1-completion-recovery`; current `HEAD` is `2353317a82f07c8200de9e79b73154b44b93733c` (`docs: record verified preview candidate`) and matches the remote.
+- Branch: `codex/s1-completion-recovery`, tracking `origin/codex/s1-completion-recovery`. The worktree was clean and local/upstream SHA matched at the release checkpoint; run `git rev-parse HEAD` before resuming to identify the self-updating documentation checkpoint exactly.
 - Preview runtime source: `e0b10fb460e50685e08f03de5e224994c3691640` (`fix: add field lab favicon`), following `84b9ce1` (`feat: complete inclusive study route and challenge remediation`). The current head is documentation-only and does not alter the preview runtime.
 - The source-only feature work is published. `.playwright-cli/` and `output/` are ignored generated browser artifacts; do not stage them. `AGENTS.md` and `KEYUR_WORKFLOW.md` remain unchanged.
 - The current approved test candidate is the Vercel **preview**: `https://biology-natural-selection-r14paktmg-keyur159263-5904s-projects.vercel.app`.
