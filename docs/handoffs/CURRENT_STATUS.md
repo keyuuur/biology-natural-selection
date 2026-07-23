@@ -1,6 +1,8 @@
 # Natural Selection Current Status
 
 Last verified locally and on preview: 2026-07-22 (CDT)
+Handoff refreshed: 2026-07-23 (CDT); no runtime, test, preview, or deployment
+state changed after the documentation-only `bde1c94` checkpoint.
 
 ## Current candidate
 
@@ -19,6 +21,16 @@ Last verified locally and on preview: 2026-07-22 (CDT)
 - Production was not deployed or changed.
 - `.playwright-cli/`, `output/`, and browser-test artifacts are ignored; do not
   stage them. `AGENTS.md` and `KEYUR_WORKFLOW.md` remain unchanged.
+
+## Current pause
+
+- Keyur explicitly requested that work stop once a real target-iPad,
+  Safari, and school-Wi-Fi test is required. No physical-device or student
+  pilot evidence has been collected.
+- The source candidate is intentionally frozen. Do not substitute desktop,
+  simulated WebKit, or automated browser evidence for Gate 1 or Gate 2.
+- The next authorized product work is the Gate 1 procedure below; only after
+  it passes may the anonymous A-H pilot begin.
 
 ## What changed at this checkpoint
 
